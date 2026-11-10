@@ -99,6 +99,10 @@ class Config:
     bribe_income_cap: float
     # decision
     timeout_default_allocation: dict[str, int]
+    # bots
+    bot_allocations: dict[str, dict[str, int]]
+    bot_random_transfer_prob: float
+    bot_stub_policy: dict[str, Any]
     # payment
     coins_per_currency_unit: float
     currency: str
@@ -190,6 +194,12 @@ def config_from_dict(raw: dict[str, Any], *, source_path: str = "", sha256: str 
         bribe_income_rate=float(g("coordinator_pay.bribe_income_rate")),
         bribe_income_cap=float(g("coordinator_pay.bribe_income_cap")),
         timeout_default_allocation={k: int(v) for k, v in g("decision.timeout_default_allocation").items()},
+        bot_allocations={
+            name: {k: int(v) for k, v in g(f"bots.{name}").items()}
+            for name in ("cooperative", "selfish", "conditional_first_round")
+        },
+        bot_random_transfer_prob=float(g("bots.random_transfer_prob")),
+        bot_stub_policy=dict(g("bots.stub_policy")),
         coins_per_currency_unit=float(g("payment.coins_per_currency_unit")),
         currency=str(g("payment.currency")),
         show_up_fee=float(g("payment.show_up_fee")),
@@ -230,6 +240,11 @@ def _validate(cfg: Config) -> None:
     alloc = cfg.timeout_default_allocation
     if set(alloc) != {"harvest", "contribute", "save"} or sum(alloc.values()) != cfg.effort_points:
         errs.append("timeout_default_allocation must have harvest/contribute/save summing to effort_points")
+    for name, a in cfg.bot_allocations.items():
+        if set(a) != {"harvest", "contribute", "save"} or sum(a.values()) != cfg.effort_points or min(a.values()) < 0:
+            errs.append(f"bots.{name} must have non-negative harvest/contribute/save summing to effort_points")
+    if not (0 <= cfg.bot_random_transfer_prob <= 1):
+        errs.append("bots.random_transfer_prob must be in [0, 1]")
     if cfg.default_policy.get("redistribution") not in cfg.redistribution_options:
         errs.append("default_policy.redistribution not in redistribution_options")
     if cfg.default_policy.get("info_policy") not in cfg.info_policy_options:

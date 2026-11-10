@@ -10,7 +10,7 @@ CALM = None  # filled per-test from cfg
 
 
 def run(cfg, state, decisions, policy=None, event="calm", rng=None, bribes=()):
-    from tests.engine.conftest import FixedRng
+    from tests.conftest import FixedRng
 
     return resolve_round(state, decisions, policy or Policy(), cfg.event(event), rng or FixedRng(),
                          cfg=cfg, bribes=bribes)

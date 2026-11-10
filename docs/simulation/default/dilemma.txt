@@ -1,0 +1,14 @@
+Dilemma check — config config/default.yaml sha256=01d01e213e80, 1000 seeds, condition none (default policy)
+
+(a) welfare cooperative vs selfish: PASS
+    group earnings  coop    237.8   selfish    107.2   ratio 2.22x (target >= 2x)
+    final welfare   coop    739.4   selfish    608.7   ratio 1.21x (incl. endowments)
+(b) selfish beats cooperative in every round while the stock is alive (S >= S_min): FAIL
+    5884 live round contexts; selfish earns more in 99.9%
+    incl. collapsed rounds (6956 contexts): 85.9%
+    selfish − coop round earnings: min -0.60, mean +5.57
+    cooperative wins only when stock <= 11.9
+    note: pure saving (0/0/10) beats selfish in 21.4% of contexts
+(c) all-selfish collapse within ~6-8 rounds: PASS
+    collapsed at all: 92.3%   in rounds 6-8: 39.2%   median collapse round: 5
+    mean final stock (all-selfish): 1.4 (S_min = 10.0)

@@ -12,7 +12,12 @@ def test_default_config_loads_with_hash(cfg):
     assert cfg.stock_initial == pytest.approx(70.0)
     assert cfg.stock_min == pytest.approx(10.0)
     assert len(cfg.sha256) == 64
-    assert load_config().sha256 == cfg.sha256
+    assert load_config(cfg.source_path).sha256 == cfg.sha256
+
+
+def test_shipped_default_config_is_valid():
+    default = load_config()
+    assert default.source_path.endswith("config/default.yaml") and len(default.sha256) == 64
 
 
 def test_event_probabilities_must_sum_to_one(cfg):

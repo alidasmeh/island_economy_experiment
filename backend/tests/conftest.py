@@ -1,10 +1,14 @@
 import copy
+from pathlib import Path
 
 import pytest
 
 from app.engine import GroupState, load_config
 from app.engine.config import config_from_dict
 from app.engine.types import CoordinatorAccount
+
+
+TEST_CONFIG = Path(__file__).parent / "fixtures" / "test_config.yaml"
 
 
 class FixedRng:
@@ -20,7 +24,8 @@ class FixedRng:
 
 @pytest.fixture(scope="session")
 def cfg():
-    return load_config()
+    """Fixed test parameters (tests/fixtures/test_config.yaml), independent of calibration."""
+    return load_config(TEST_CONFIG)
 
 
 @pytest.fixture

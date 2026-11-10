@@ -23,9 +23,13 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 | --- | --- |
 | `backend/` | FastAPI + python-socketio + async SQLAlchemy (PostgreSQL) |
 | `backend/app/engine/` | Pure game engine: config, seeded setup, `resolve_round`, validation, metrics |
-| `backend/app/bots/` | Bot strategies (Milestone 2) |
-| `backend/app/sim/` | Headless simulation CLI (Milestone 2) |
+| `backend/app/engine/observation.py` | What each role may see (players, coordinator) |
+| `backend/app/bots/` | Bot strategies: cooperative, selfish, conditional, random |
+| `backend/app/coordinator/` | Coordinator interface (observation in, action out) and scripted stub |
+| `backend/app/sim/` | Headless simulation CLI, dilemma check, plots |
 | `backend/config/default.yaml` | **All** game parameters (nothing numeric is hard-coded) |
+| `backend/config/spec_original.yaml` | Original spec parameter values (before calibration), for reproducibility |
+| `docs/simulation/` | Dilemma-check results and plots |
 | `backend/tests/` | Unit tests (`pytest`) |
 | `frontend/` | Participant UI (React 19 + MUI + socket.io-client) |
 | `dashboard/` | Experimenter/admin UI (React 19 + MUI) |
@@ -33,7 +37,7 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 ## Milestones
 
 - [x] 1. Game engine: config loading, `resolve_round`, state dynamics, unit tests
-- [ ] 2. Simulation CLI with bots, welfare/stock plots, dilemma check
+- [x] 2. Simulation CLI with bots, welfare/stock plots, dilemma check
 - [ ] 3. Multiplayer flow: rooms, phases, timers, player UI, `none` condition end to end
 - [ ] 4. Human coordinator dashboard and policy pipeline
 - [ ] 5. Communication and bribery: chat, DMs, escrow, favors, detection
@@ -77,6 +81,36 @@ cd backend
 poetry install
 poetry run pytest tests -q
 ```
+
+## Simulation
+
+Run complete bot groups headless (no UI, no database):
+
+```bash
+cd backend
+# one or more strategy mixes x seeds -> sim_output/{groups,rounds,players}.csv + meta.json (+ plots)
+poetry run python -m app.sim simulate --condition none \
+  --strategy-mix cooperative --strategy-mix selfish --strategy-mix selfish:2,cooperative:2 \
+  --seeds 1..1000 --params config/default.yaml --out sim_output --plot
+
+# with a scripted coordinator (fixed policy, or per-round script; see app/coordinator/interface.py)
+poetry run python -m app.sim simulate --condition coordinator_stub --policy my_policy.yaml --strategy-mix random
+
+# section-13 dilemma check (exit code 1 if any check fails)
+poetry run python -m app.sim dilemma --seeds 1..1000 --params config/default.yaml
+
+# re-plot welfare and stock by round from a previous run
+poetry run python -m app.sim plot --in sim_output --params config/default.yaml
+```
+
+Strategy mixes: `selfish` (all seats), `selfish:2,cooperative:2`, or one name per seat
+(`random,conditional,selfish,cooperative`). Strategies: `cooperative`, `selfish`,
+`conditional`, `random`.
+
+**Dilemma check:** with the original spec values all three checks failed. The defaults were
+recalibrated (q = 0.017, ρ = 0.3, γ = γ_pot = 0.005, d = 0.05); they pass (a) and (c), and (b)
+holds in 99.9% of rounds. Details and plots: [docs/simulation/README.md](docs/simulation/README.md).
+The original values are in `config/spec_original.yaml`.
 
 ### Changing parameters
 
