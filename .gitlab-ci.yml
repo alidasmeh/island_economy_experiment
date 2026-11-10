@@ -1,0 +1,24 @@
+stages:
+  - child-pipelines
+
+backend:
+  stage: child-pipelines
+  trigger:
+    include: backend/.gitlab-ci.yml
+    strategy: depend
+
+frontend:
+  stage: child-pipelines
+  variables:
+    CHILD_PIPELINE_EXECUTION_CONTEXT: "frontend"
+  trigger:
+    include: frontend/.gitlab-ci.yml
+    strategy: depend
+
+dashboard:
+  stage: child-pipelines
+  variables:
+    CHILD_PIPELINE_EXECUTION_CONTEXT: "dashboard"
+  trigger:
+    include: dashboard/.gitlab-ci.yml
+    strategy: depend

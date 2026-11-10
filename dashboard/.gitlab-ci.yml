@@ -1,0 +1,77 @@
+variables:
+  APP_NAME: ${APP_NAME_PREFIX}-dashboard
+  CHILD_PIPELINE_EXECUTION_CONTEXT: dashboard
+  BACKEND_URL: https://${APP_NAME_PREFIX}-backend.${CLUSTER_BASE_URL}
+  REACT_APP_BACKEND_URL: https://${APP_NAME_PREFIX}-backend.${CLUSTER_BASE_URL}
+  NAMESPACE: ${APP_NAME_PREFIX}
+  DOCKER_TARGET: production
+  WEB_PORT: 80
+  BLOCK_BOTS: false
+
+include:
+  - project: "mpib/chm/common/deploy-pipeline"
+    ref: "3.1.0"
+    file: "react-app.yml"
+
+.build-stage-react:
+  before_script:
+    - export REACT_APP_BACKEND_URL=https://project-template-backend.${CLUSTER_BASE_URL}
+    - export NODE_ENV=production
+    - "echo Running pipeline in directory: $CHILD_PIPELINE_EXECUTION_CONTEXT"
+    - "echo react backend url = $REACT_APP_BACKEND_URL"
+    - cd $CHILD_PIPELINE_EXECUTION_CONTEXT
+    - echo "REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL" > .env
+
+  script:
+    - echo "Contents of the CHILD_PIPELINE_EXECUTION_CONTEXT directory:"
+    - ls -la
+    - echo "Contents of the root directory:"
+    - cd ..
+    - ls -la
+    - cd $CHILD_PIPELINE_EXECUTION_CONTEXT
+    - npm install --include=dev
+    - npm run build-prod
+
+  artifacts:
+    paths:
+      - ${CHILD_PIPELINE_EXECUTION_CONTEXT}/.env
+      - ${CHILD_PIPELINE_EXECUTION_CONTEXT}/dist/
+    expire_in: 1 week
+
+build:
+  extends: .build-stage-react
+  script:
+    - echo "Overriding or appending to script from .build-stage-react"
+    - npm install --include=dev
+    - npm run build
+
+.deploy:
+  image: ${CI_REGISTRY}/${DOCKER_REGISTRY_PREFIX}/app/cd-tools:1.0.1
+  # SEE: https://gitlab.com/gitlab-org/gitlab/-/issues/346695
+  before_script:
+    - "echo Running pipeline in directory: $CHILD_PIPELINE_EXECUTION_CONTEXT"
+    - cd $CHILD_PIPELINE_EXECUTION_CONTEXT
+  script:
+    - source deploy-pipeline/portainer_ctx.sh
+    - deploy-pipeline/deployment_vars.pl
+    - if [ -n "${HELM_DRYRUN+empty}" ]; then DRYRUN="--dry-run --debug"; else DRYRUN=""; fi
+    - helm upgrade
+      --install
+      --namespace ${NAMESPACE}
+      $DRYRUN
+      "${APP_NAME}-${CI_COMMIT_REF_SLUG}"
+      deploy-pipeline/charts/web-service
+      --set dockersecret=${DOCKERCFG}
+      --set app_name="${APP_NAME}-${CI_COMMIT_REF_SLUG}"
+      --set app_image="${CI_REGISTRY}/${DOCKER_REGISTRY_PREFIX}/${IMAGE_NAME}:${IMAGE_TAG}"
+      --set main_url="${MAIN_URL}"
+      --set web_port="${WEB_PORT}"
+      --set replica_count="${REPLICA_COUNT}"
+      --set resources.requests.memory=1Gi
+      --set resources.limits.memory=2Gi
+      $( [ -n "${STICKY_SESSION+empty}" ] && echo "--set sticky_session=${STICKY_SESSION}" )
+      --values /tmp/deployment_vars.yml
+      --atomic --kubeconfig portainer-ctx
+    - echo "The experiment has been deployed to ${MAIN_URL}."
+    - DYNAMIC_ENVIRONMENT_URL=https://${MAIN_URL}
+    - echo "DYNAMIC_ENVIRONMENT_URL=$DYNAMIC_ENVIRONMENT_URL" >> deploy.env

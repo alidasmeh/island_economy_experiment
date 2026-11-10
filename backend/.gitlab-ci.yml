@@ -1,0 +1,15 @@
+variables:
+  APP_NAME: ${APP_NAME_PREFIX}-backend
+  CHILD_PIPELINE_EXECUTION_CONTEXT: backend
+  DEPLOYMENT_VARS: "DATABASE_URL, REACT_APP_BACKEND_URL, REACT_APP_BACKEND_SOCKET_URL, DASHBOARD_USERNAME, DASHBOARD_PASSWORD"
+  # MONGO_URL defined in deploy-pipeline
+  # API_KEY passed as GitLab CI/CD variable
+  DATABASE_NAME: chm_main
+  WEB_PORT: 8000
+  NAMESPACE: ${APP_NAME_PREFIX}
+  BLOCK_BOTS: false
+
+include:
+  - project: "mpib/chm/common/deploy-pipeline"
+    ref: "3.1.0"
+    file: "python-app.yml"

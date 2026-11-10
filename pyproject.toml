@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "backend"
+version = "0.1.0"
+description = "CHM backend template"
+authors = ["Ali Dasmeh <dasmeh@mpib-berlin.mpg.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.12"
+uvicorn = {extras = ["standard"], version = "^0.34.0"}
+python-socketio = "^5.12.1"
+motor = "^3.7.0"
+python-dotenv = "^1.1.0"
+sqlalchemy = "^2.0.39"
+psycopg2-binary = "^2.9.10"
+asyncpg = "^0.30.0"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.5"
+httpx = "^0.28.1"
+requests = "^2.32.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
