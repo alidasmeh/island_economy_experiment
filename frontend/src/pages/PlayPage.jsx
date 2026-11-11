@@ -1,7 +1,8 @@
 // Entry point for participants: /play?session=CODE&PROLIFIC_PID=...&STUDY_ID=...&SESSION_ID=...
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Box, CircularProgress, Container, Typography } from "@mui/material";
-import { forgetToken, joinSession, storedToken } from "../game/api";
+import { fetchRules, forgetToken, joinSession, storedToken } from "../game/api";
+import Instructions from "../game/components/Instructions";
 import { useGame } from "../game/useGame";
 import { GameHeader, PolicyBanner, SharedState } from "../game/components/StatusBar";
 import DecisionPanel from "../game/components/DecisionPanel";
@@ -46,14 +47,41 @@ export default function PlayPage() {
     }
   }, [connection, sessionCode]);
 
-  // From the lobby, go straight to the waiting room (consent, instructions and quiz come first in Milestone 7).
+  // Instructions first (once per session in this tab), then the waiting room.
+  // Consent and the comprehension quiz are added before this in Milestone 7.
+  const doneKey = `island_instructions_done_${sessionCode}`;
+  const [instructionsDone, setInstructionsDone] = useState(() => {
+    try {
+      return sessionStorage.getItem(doneKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [rules, setRules] = useState(null);
+  const [rulesError, setRulesError] = useState("");
+  const shownAt = useMemo(() => Date.now(), []);
+  const inLobby = snapshot && snapshot.view === "lobby";
+
   useEffect(() => {
-    if (snapshot && snapshot.view === "lobby") {
-      call("enter_waiting_room", {}).then((ack) => {
+    if (inLobby && !instructionsDone && !rules) fetchRules().then(setRules).catch((e) => setRulesError(e.message));
+  }, [inLobby, instructionsDone, rules]);
+
+  useEffect(() => {
+    if (inLobby && instructionsDone) {
+      call("enter_waiting_room", { instructions_seconds: Math.round((Date.now() - shownAt) / 1000) }).then((ack) => {
         if (!ack.ok) setEnterError(ack.error || "Could not enter the waiting room");
       });
     }
-  }, [snapshot, call]);
+  }, [inLobby, instructionsDone, call, shownAt]);
+
+  const finishInstructions = () => {
+    try {
+      sessionStorage.setItem(doneKey, "1");
+    } catch {
+      /* ignore */
+    }
+    setInstructionsDone(true);
+  };
 
   let body;
   if (!sessionCode) {
@@ -68,6 +96,14 @@ export default function PlayPage() {
         <CircularProgress />
         <Typography sx={{ mt: 2 }}>Connecting…</Typography>
       </Box>
+    );
+  } else if (inLobby && !instructionsDone) {
+    body = rulesError ? (
+      <Alert severity="error">{rulesError}</Alert>
+    ) : rules ? (
+      <Instructions rules={rules} condition="none" onDone={finishInstructions} />
+    ) : (
+      <CircularProgress sx={{ mt: 4 }} />
     );
   } else if (snapshot.view === "waiting" || snapshot.view === "lobby") {
     body = <WaitingRoom snap={snapshot.view === "waiting" ? snapshot : { n_waiting: 1, n_needed: "?" }} />;

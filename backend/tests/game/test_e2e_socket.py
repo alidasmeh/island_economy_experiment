@@ -53,6 +53,9 @@ async def test_admin_requires_credentials(server):
         r = await http.post("/api/admin/sessions", json={"conditions": ["human"], "seeds": [1]}, headers=AUTH)
         assert r.status_code == 400   # coordinator condition arrives in Milestone 4
         assert (await http.post("/api/join", json={"session_code": "NOPE"})).status_code == 404
+        rules = (await http.get("/api/rules")).json()
+        assert rules["effort_points"] == 10 and rules["n_players"] == 4
+        assert not any("round" in k for k in rules)   # the number of rounds is never revealed
 
 
 async def test_socket_rejects_bad_token(server):

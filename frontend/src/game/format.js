@@ -16,14 +16,15 @@ export const PHASE_TITLES = {
 const titleCase = (s) => s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 // Describe an event from its multipliers (event names and effects come from the config).
-export function describeEvent(ev) {
+// The insurance line is shown only where insurance can apply (it exists only under a coordinator's policy).
+export function describeEvent(ev, showInsurance = false) {
   if (!ev) return { title: "", effects: [] };
   const effects = [];
   const pct = (m) => `${m > 1 ? "+" : "−"}${Math.round(Math.abs(m - 1) * 100)}%`;
   if (ev.harvest_mult !== 1) effects.push(`Fishing yield ${pct(ev.harvest_mult)} this round`);
   if (ev.regrowth_mult !== 1) effects.push(`Fish regrowth ${pct(ev.regrowth_mult)} this round`);
   if (ev.price_mult !== 1) effects.push(`Fish price ${pct(ev.price_mult)} this round`);
-  if (ev.insurance_payout) effects.push("Insurance pays out (if the group has an insurance pool)");
+  if (ev.insurance_payout && showInsurance) effects.push("Storm insurance pays out");
   if (effects.length === 0) effects.push("Nothing unusual this round");
   return { title: titleCase(ev.name), effects };
 }

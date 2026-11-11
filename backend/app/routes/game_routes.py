@@ -102,3 +102,34 @@ async def session_detail(code: str, _admin: str = Depends(require_admin)) -> dic
     return {"session_code": s.id, "label": s.label, "status": s.status, "assignments": s.assignments,
             "params_sha256": s.params_sha256, "code_version": s.code_version,
             "n_waiting": len(live.waiting) if live else 0, "groups": groups}
+
+
+@game_router.get("/rules")
+async def rules() -> dict[str, Any]:
+    """Public game parameters for the instruction pages (never the number of rounds)."""
+    cfg = get_service().cfg
+    return {
+        "n_players": cfg.n_players,
+        "effort_points": cfg.effort_points,
+        "wealth_min": cfg.wealth_min, "wealth_max": cfg.wealth_max,
+        "skill_min": cfg.skill_min, "skill_max": cfg.skill_max,
+        "carrying_capacity": cfg.carrying_capacity,
+        "stock_initial": cfg.stock_initial,
+        "stock_min": cfg.stock_min,
+        "regrowth_rate": cfg.regrowth_rate,
+        "catchability": cfg.catchability,
+        "price": cfg.price,
+        "infra_initial": cfg.infra_initial,
+        "infra_gain_per_point": cfg.infra_gain_per_point,
+        "infra_depreciation": cfg.infra_depreciation,
+        "saving_return_per_point": cfg.saving_return_per_point,
+        "interest_rate": cfg.interest_rate,
+        "events": [{"name": e.name, "probability": e.probability, "harvest_mult": e.harvest_mult,
+                    "regrowth_mult": e.regrowth_mult, "price_mult": e.price_mult,
+                    "insurance_payout": e.insurance_payout} for e in cfg.events],
+        "phase_seconds": {k: round(v) for k, v in cfg.phase_seconds.items()},
+        "timeout_default_allocation": cfg.timeout_default_allocation,
+        "coins_per_currency_unit": cfg.coins_per_currency_unit,
+        "currency": cfg.currency,
+        "show_up_fee": cfg.show_up_fee,
+    }

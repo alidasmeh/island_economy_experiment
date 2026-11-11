@@ -56,7 +56,8 @@ class Lobby:
     def runtime_of(self, participant_id: str) -> GroupRuntime | None:
         return self.by_participant.get(participant_id)
 
-    async def enter_waiting_room(self, participant_id: str, session_code: str, status: str = "joined") -> dict[str, Any]:
+    async def enter_waiting_room(self, participant_id: str, session_code: str, status: str = "joined",
+                                 client_info: dict[str, Any] | None = None) -> dict[str, Any]:
         if participant_id in self.by_participant:
             return {"ok": True, "in_group": True}
         if status in ("playing", "finished", "aborted"):
@@ -69,7 +70,7 @@ class Lobby:
             s.waiting.append(participant_id)
             await repo.update_participant(participant_id, status="waiting")
             await self.store.append("waiting_room_entered", session_id=session_code, participant_id=participant_id,
-                                    payload={"position": len(s.waiting)})
+                                    payload={"position": len(s.waiting), **(client_info or {})})
         await self._try_form_groups(s)
         await self.broadcast_waiting(s)
         return {"ok": True}

@@ -27,10 +27,8 @@ function App() {
         {/* To add a new page to the project, you need to update the following code with the new page component. */}
         <Routes>
           <Route path="/" element={<ConsentPage setUserId={setUserId} />} />
-          <Route
-            path="/instruction"
-            element={<InstructionPage userId={userId} />}
-          />
+          {/* Preview of the participant instructions: /instruction?condition=none */}
+          <Route path="/instruction" element={<InstructionPage />} />
           <Route
             path="/quiz"
             element={<QuizPage userId={userId} />}

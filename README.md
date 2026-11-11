@@ -1,5 +1,7 @@
 # Island Economy experiment (human-only)
 
+**Researchers:** start with [how_to_play.md](how_to_play.md) (addresses, services, how to run a session).
+
 Real-time multiplayer common-pool economy for a behavioral study at the Max Planck
 Institute for Human Development (Center for Humans and Machines).
 
@@ -33,6 +35,7 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 | `backend/app/models/game_models.py` | Tables: sessions, participants, tokens, Prolific mapping, groups, append-only event log |
 | `backend/app/devtools/fake_players.py` | Dev tool: scripted clients that fill seats for local testing |
 | `frontend/src/pages/PlayPage.jsx`, `frontend/src/game/` | Participant game UI |
+| `frontend/src/game/components/Instructions.jsx` | Participant instructions (numbers from `GET /api/rules`); preview at `/instruction` |
 | `backend/config/default.yaml` | **All** game parameters (nothing numeric is hard-coded) |
 | `backend/config/spec_original.yaml` | Original spec parameter values (before calibration), for reproducibility |
 | `docs/simulation/` | Dilemma-check results and plots |

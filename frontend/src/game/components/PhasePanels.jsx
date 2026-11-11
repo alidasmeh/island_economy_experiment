@@ -50,7 +50,7 @@ function ReadyButton({ snap, call, label = "Continue" }) {
 }
 
 export function EventPanel({ snap, call }) {
-  const ev = describeEvent(snap.observation.event);
+  const ev = describeEvent(snap.observation.event, snap.policy.insurance);
   return (
     <Paper elevation={0} sx={{ p: 2, border: 1, borderColor: "divider" }}>
       <Typography variant="overline" color="text.secondary">This round's event</Typography>

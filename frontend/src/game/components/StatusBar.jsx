@@ -59,7 +59,7 @@ export function GameHeader({ snap, clockOffset }) {
 export function SharedState({ snap }) {
   const obs = snap.observation;
   const pct = Math.max(0, Math.min(100, (obs.stock / obs.carrying_capacity) * 100));
-  const ev = describeEvent(obs.event);
+  const ev = describeEvent(obs.event, snap.policy.insurance);
   return (
     <Paper elevation={0} sx={{ p: 1.5, mb: 1.5, border: 1, borderColor: "divider" }}>
       <Stack direction="row" justifyContent="space-between">

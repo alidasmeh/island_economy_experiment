@@ -90,7 +90,10 @@ def _runtime(pid: str):
 async def enter_waiting_room(sid, data=None):
     async def go(pid, session_id):
         p = await repo.participant_by_id(pid)
-        return await get_service().lobby.enter_waiting_room(pid, session_id, p.status if p else "joined")
+        info = {}
+        if isinstance(data, dict) and isinstance(data.get("instructions_seconds"), (int, float)):
+            info["instructions_seconds"] = max(0, min(int(data["instructions_seconds"]), 86400))
+        return await get_service().lobby.enter_waiting_room(pid, session_id, p.status if p else "joined", info)
     return await _call(sid, go)
 
 

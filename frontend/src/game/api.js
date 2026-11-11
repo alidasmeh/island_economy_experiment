@@ -71,3 +71,10 @@ export function connectGameSocket(token) {
     reconnectionDelayMax: 3000,
   });
 }
+
+// Public game parameters for the instructions (never includes the number of rounds).
+export async function fetchRules() {
+  const res = await fetch(`${BACKEND_URL}/api/rules`);
+  if (!res.ok) throw new Error(`Could not load the instructions (HTTP ${res.status})`);
+  return res.json();
+}

@@ -185,3 +185,23 @@ interface clean. Parameter values live in `backend/config/default.yaml`.
   pages are left for Milestone 7. The template's `users_4` table and routes are untouched.
 - **Dependencies.** `greenlet` is declared explicitly (SQLAlchemy's async engine needs it, and
   it is not installed automatically on every platform); `aiosqlite` for the SQLite fallback.
+
+## Instructions
+
+- **Content.** Nine short pages: welcome, round steps, effort points, the sea, differences
+  between islanders, events, who sets the rules (condition-specific), an interactive "try it"
+  example, payment. Plain language, one topic per page, phone-sized.
+- **No hard-coded numbers.** The pages read all parameters from `GET /api/rules`, a public
+  endpoint that returns the game settings in force. It never includes the number of rounds.
+- **Truthfulness.** The pages say the other islanders are real participants and (in the
+  coordinator condition, Milestone 4) that the coordinator is another participant.
+- **Where shown.** On `/play`, before the waiting room (consent and quiz will come before them
+  in Milestone 7). `/instruction?condition=none` shows the same pages as a preview that
+  records nothing. Time spent on them is logged as `instructions_seconds` with
+  `waiting_room_entered`.
+- **Insurance** is mentioned only where it can apply: not in the no-coordinator condition, and
+  in the game only while the coordinator's policy has insurance switched on.
+- The template's consent → instruction → quiz pages are no longer linked to each other;
+  Milestone 7 replaces them.
+- **Local dev ports.** `.claude/launch.json` uses ports 8010 (backend) and 3010 (frontend) so it
+  does not clash with `docker compose` on 8000/3000/3001.
