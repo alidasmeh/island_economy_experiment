@@ -7,7 +7,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
 import ConsentPage from "./pages/ConsentPage";
 import InstructionPage from "./pages/InstructionPage";
-import GamePage from "./pages/GamePage";
+import PlayPage from "./pages/PlayPage";
 import SurveyPage from "./pages/SurveyPage";
 // import QuizPage from "./pages/QuizPage";
 import QuizPage from "./pages/QuizPageVersionTwo";
@@ -35,7 +35,8 @@ function App() {
             path="/quiz"
             element={<QuizPage userId={userId} />}
           />
-          <Route path="/game" element={<GamePage userId={userId} />} />
+          {/* Island Economy game: /play?session=CODE&PROLIFIC_PID=... */}
+          <Route path="/play" element={<PlayPage />} />
           <Route path="/survey" element={<SurveyPage userId={userId} />} />
           <Route path="/terminate/:status" element={<TerminatePage userId={userId} />} />
         </Routes>

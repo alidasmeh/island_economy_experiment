@@ -1,10 +1,9 @@
 from datetime import datetime
 
 from sqlalchemy import Column, Integer, String, DateTime
-from sqlalchemy.dialects.postgresql import JSON, JSONB
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 
-from .database import Base
+from .database import Base, json_type
 
 class User(Base):
     __tablename__ = "users_4"
@@ -12,8 +11,8 @@ class User(Base):
     user_id = Column(Integer, primary_key=True, index=True)
     participant_id = Column(String, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    status = Column(MutableList.as_mutable(JSONB), default=list)  # change from dict to list
-    surveys = Column(MutableDict.as_mutable(JSON), default=dict)
+    status = Column(MutableList.as_mutable(json_type()), default=list)  # change from dict to list
+    surveys = Column(MutableDict.as_mutable(json_type()), default=dict)
 
     def to_dict(self):
         return {

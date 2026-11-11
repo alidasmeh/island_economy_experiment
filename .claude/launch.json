@@ -1,0 +1,32 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd backend && DASHBOARD_USERNAME=admin DASHBOARD_PASSWORD=admin ISLAND_TIME_SCALE=${ISLAND_TIME_SCALE:-0.5} poetry run uvicorn app.main:app --host 127.0.0.1 --port 8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "backend-fast",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd backend && DASHBOARD_USERNAME=admin DASHBOARD_PASSWORD=admin ISLAND_TIME_SCALE=0.04 poetry run uvicorn app.main:app --host 127.0.0.1 --port 8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd frontend && BROWSER=none PORT=3000 npm start"
+      ],
+      "port": 3000
+    }
+  ]
+}

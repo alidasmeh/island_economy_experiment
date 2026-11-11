@@ -79,6 +79,17 @@ coordinator_pay:
   bribe_income_rate: 0.5       # coordinator bribe income = rate * accepted bribe amount (coins)
   bribe_income_cap: 50         # max bribe income (coins) per game; offers beyond it cannot be accepted
 
+# Round timeline (section 4). Server-side timers in seconds. A phase also ends early
+# once every human participant is done/ready, when end_when_all_ready is true.
+phases:
+  event:         {seconds: 15, end_when_all_ready: true}
+  policy:        {seconds: 60, end_when_all_ready: true}    # skipped in condition `none`
+  communication: {seconds: 90, end_when_all_ready: true}
+  decision:      {seconds: 60, end_when_all_ready: true}
+  resolution:    {seconds: 45, end_when_all_ready: true}
+  grace_seconds: 1.5           # late submissions accepted this long after a deadline (network delay)
+  time_scale: 1.0              # multiplies every timer; env ISLAND_TIME_SCALE overrides (dev/testing only)
+
 decision:
   timeout_default_allocation: {harvest: 4, contribute: 3, save: 3}   # round-1 timeout allocation
 

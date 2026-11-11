@@ -127,3 +127,61 @@ interface clean. Parameter values live in `backend/config/default.yaml`.
 - Engine unit tests use a fixed parameter file (`backend/tests/fixtures/test_config.yaml`,
   the original spec values) so hand-computed expectations don't change with calibration.
   A separate test checks that the shipped defaults pass dilemma checks (a) and (c).
+
+## Multiplayer flow (Milestone 3)
+
+- **Architecture.** One `GroupRuntime` per group runs as an asyncio task in the backend
+  process. It owns the round timeline and timers, accepts submissions, calls
+  `resolve_round`, and pushes per-participant `state` snapshots. It talks to the outside only
+  through an `EventStore` (logging) and a `Transport` (Socket.IO), so it is unit-tested
+  without a server or database.
+- **Single replica.** Live state is in memory; deploy the backend with one replica. A restart
+  ends running games; reconnecting participants see a "no longer available" message. The
+  event log has everything needed to rebuild games later if that becomes necessary.
+- **Event-sourced logging.** All game data goes into one append-only table, `ie_event_log`
+  (`ts, session_id, group_id, round, participant_id, kind, payload`). The analysis tables of
+  section 11 (decisions, state, ledger, ratings, ...) will be derived from it at export time
+  (Milestone 8). Kinds logged so far: `session_created`, `joined`, `connected`,
+  `disconnected`, `waiting_room_entered/left`, `session_full`, `group_started` (condition,
+  seed, T, params hash, code version, seats, endowments, skills, events), `phase_started`,
+  `phase_ended` (`all_ready` / `timeout`), `ready`, `decision` (split, transfer, timeout flag,
+  server response time, client response time, slider changes), `action_rejected`,
+  `round_resolved` (policy + full ledger), `state`, `fairness_rating`, `game_finished`
+  (settlement), `runtime_error`, `group_aborted`.
+- **Identities.** Participants get a random pseudonymous ID (`p_…`). Prolific IDs are stored
+  only in `ie_external_ids`, never in game data or the event log. Access tokens are random,
+  stored hashed in `ie_participant_tokens`. Re-joining with the same Prolific ID returns the
+  same participant with an additional token (earlier tokens stay valid, so two tabs do not
+  lock each other out). Knowing a session code and someone's Prolific ID is enough to resume
+  as them; Prolific IDs are not public, so this is accepted.
+- **Matching.** Arrival order. A session has a planned list of groups
+  (`assignments`: condition + seed). With several conditions, each seed is played once per
+  condition, interleaved (`none, human, none, human, …` for seeds 1, 1, 2, 2, …) to keep the
+  matched design balanced over time. When the plan is exhausted, later arrivals are told the
+  session is full (exit/payment handling comes in Milestone 7). Waiting-room timeouts come
+  with Milestone 7/8.
+- **Timers.** Server-side, from config (`phases:`), multiplied by `time_scale` (env
+  `ISLAND_TIME_SCALE` overrides, for development only). Each phase ends early when every
+  participant is done (`end_when_all_ready`). Decisions arriving up to `grace_seconds` after
+  the deadline are still accepted (network delay); the client shows the deadline without the
+  grace. The snapshot carries the server time, so the client corrects for clock skew.
+- **Phases in `none`.** Event → Talk → Decide → Results; the policy phase is skipped. The
+  Talk phase is kept (with a "chat not available yet" notice) so timing matches the later
+  milestones.
+- **One submission per round.** A decision is final once submitted; later attempts are
+  rejected and logged. Fairness ratings may be changed during the results phase; every
+  rating is logged and the last one counts.
+- **Fairness rating in `none`.** Also asked in the no-coordinator condition ("How fair are
+  the current rules?") so the two conditions stay comparable.
+- **Transfers** name the recipient by seat ("Islander A–D"). Labels are by seat and do not
+  change during a game.
+- **Income preview** is computed in the browser from public parameters sent in the snapshot
+  (`preview`) plus the player's own skill, and is labeled as an estimate.
+- **Admin API.** HTTP Basic with `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` (constant-time
+  comparison). The dashboard UI comes in Milestone 8. The `human` condition is rejected at
+  session creation until Milestone 4.
+- **Template code.** The template's demo chat page (`frontend/src/pages/GamePage.jsx`) and
+  its Socket.IO handlers were replaced. Consent, instruction, quiz, survey and terminate
+  pages are left for Milestone 7. The template's `users_4` table and routes are untouched.
+- **Dependencies.** `greenlet` is declared explicitly (SQLAlchemy's async engine needs it, and
+  it is not installed automatically on every platform); `aiosqlite` for the SQLite fallback.

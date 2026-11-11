@@ -16,6 +16,8 @@ sqlalchemy = "^2.0.39"
 psycopg2-binary = "^2.9.10"
 asyncpg = "^0.30.0"
 pyyaml = "^6.0"
+aiosqlite = "^0.20"
+greenlet = "^3.1"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -23,7 +25,13 @@ pytest = "^8.3.5"
 httpx = "^0.28.1"
 requests = "^2.32.3"
 matplotlib = "^3.9"
+aiohttp = "^3.10"
+pytest-asyncio = "^0.24"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

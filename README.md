@@ -27,6 +27,12 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 | `backend/app/bots/` | Bot strategies: cooperative, selfish, conditional, random |
 | `backend/app/coordinator/` | Coordinator interface (observation in, action out) and scripted stub |
 | `backend/app/sim/` | Headless simulation CLI, dilemma check, plots |
+| `backend/app/game/` | Live game: lobby/waiting room, group runtime (phases, timers), event store, DB access |
+| `backend/app/sockets/sockets.py` | Socket.IO protocol (authenticated per participant) |
+| `backend/app/routes/game_routes.py` | REST: participant join, admin session management |
+| `backend/app/models/game_models.py` | Tables: sessions, participants, tokens, Prolific mapping, groups, append-only event log |
+| `backend/app/devtools/fake_players.py` | Dev tool: scripted clients that fill seats for local testing |
+| `frontend/src/pages/PlayPage.jsx`, `frontend/src/game/` | Participant game UI |
 | `backend/config/default.yaml` | **All** game parameters (nothing numeric is hard-coded) |
 | `backend/config/spec_original.yaml` | Original spec parameter values (before calibration), for reproducibility |
 | `docs/simulation/` | Dilemma-check results and plots |
@@ -38,7 +44,7 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 
 - [x] 1. Game engine: config loading, `resolve_round`, state dynamics, unit tests
 - [x] 2. Simulation CLI with bots, welfare/stock plots, dilemma check
-- [ ] 3. Multiplayer flow: rooms, phases, timers, player UI, `none` condition end to end
+- [x] 3. Multiplayer flow: rooms, phases, timers, player UI, `none` condition end to end
 - [ ] 4. Human coordinator dashboard and policy pipeline
 - [ ] 5. Communication and bribery: chat, DMs, escrow, favors, detection
 - [ ] 6. Coordinator decision support: policy preview, lever-change logging, coordinator dropout
@@ -79,8 +85,55 @@ final = settle_game(state, cfg, has_coordinator=False)
 ```bash
 cd backend
 poetry install
-poetry run pytest tests -q
+poetry run pytest tests -q   # engine, simulation, live runtime and a real-socket end-to-end game
 ```
+
+## Running the live game locally
+
+No Docker or Postgres needed: without `DATABASE_URL` the backend uses a SQLite file
+(`backend/island_dev.db`). In deployment `DATABASE_URL` points to PostgreSQL.
+
+```bash
+# 1. backend (http://localhost:8000); ISLAND_TIME_SCALE=0.2 makes every timer 5x shorter for testing
+cd backend
+DASHBOARD_USERNAME=admin DASHBOARD_PASSWORD=admin ISLAND_TIME_SCALE=0.2 poetry run uvicorn app.main:app --port 8000
+
+# 2. frontend (http://localhost:3000)
+cd frontend && npm install && npm start
+
+# 3. create a session (condition `none`; seeds fix endowments, skills, events and T)
+curl -u admin:admin -X POST localhost:8000/api/admin/sessions \
+  -H 'content-type: application/json' -d '{"label":"test","conditions":["none"],"seeds":[1,2,3]}'
+# -> {"session_code": "AB12CD34", ...}
+
+# 4. open the participant link (Prolific appends PROLIFIC_PID, STUDY_ID, SESSION_ID)
+open "http://localhost:3000/play?session=AB12CD34&PROLIFIC_PID=me"
+
+# 5. fill the other seats with scripted clients (testing only)
+cd backend && poetry run python -m app.devtools.fake_players --session AB12CD34 --n 3
+
+# live status of a session's groups
+curl -u admin:admin localhost:8000/api/admin/sessions/AB12CD34
+```
+
+`.claude/launch.json` has the same commands as `backend`, `backend-fast` (timers × 0.04) and `frontend`.
+
+**How a game runs.** Participants who open the link get a pseudonymous ID and an access
+token, then wait in the session's waiting room. As soon as 4 are waiting they become the
+session's next planned group (condition + seed, in order). Each round runs the phases
+Event → Talk → Decide → Results on server-side timers; a phase ends early once everyone is
+done. Missing decisions repeat the player's last split (round 1: 4/3/3) and are logged as
+timeouts. Every action is appended to the `ie_event_log` table.
+
+**Socket protocol** (`backend/app/sockets/sockets.py`): the client connects with
+`auth={token}` and receives `state` snapshots; it sends `enter_waiting_room`,
+`submit_decision`, `ready` and `submit_rating`, each acknowledged with `{ok, error?}`.
+What a participant may see is built only by `GroupRuntime.snapshot_for()`, which uses the
+engine's observation functions.
+
+**Single process.** Live game state is held in memory, so the backend must run as one
+replica, and a restart ends the games in progress (participants then see a "game no longer
+available" message). Rebuilding running games from the event log is not implemented.
 
 ## Simulation
 

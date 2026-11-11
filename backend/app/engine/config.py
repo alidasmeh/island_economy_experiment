@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -97,6 +98,11 @@ class Config:
     welfare_bonus_rate: float
     bribe_income_rate: float
     bribe_income_cap: float
+    # phases (seconds already multiplied by time_scale)
+    phase_seconds: dict[str, float]
+    phase_end_when_all_ready: dict[str, bool]
+    phase_grace_seconds: float
+    time_scale: float
     # decision
     timeout_default_allocation: dict[str, int]
     # bots
@@ -125,6 +131,14 @@ class Config:
             if e.name == name:
                 return e
         raise KeyError(name)
+
+
+PHASES = ("event", "policy", "communication", "decision", "resolution")
+
+
+def _time_scale(raw: dict) -> float:
+    env = os.getenv("ISLAND_TIME_SCALE")
+    return float(env) if env else float(_get(raw, "phases.time_scale"))
 
 
 def _get(d: dict, path: str) -> Any:
@@ -193,6 +207,10 @@ def config_from_dict(raw: dict[str, Any], *, source_path: str = "", sha256: str 
         welfare_bonus_rate=float(g("coordinator_pay.welfare_bonus_rate")),
         bribe_income_rate=float(g("coordinator_pay.bribe_income_rate")),
         bribe_income_cap=float(g("coordinator_pay.bribe_income_cap")),
+        phase_seconds={name: float(g(f"phases.{name}.seconds")) * _time_scale(raw) for name in PHASES},
+        phase_end_when_all_ready={name: bool(g(f"phases.{name}.end_when_all_ready")) for name in PHASES},
+        phase_grace_seconds=float(g("phases.grace_seconds")) * _time_scale(raw),
+        time_scale=_time_scale(raw),
         timeout_default_allocation={k: int(v) for k, v in g("decision.timeout_default_allocation").items()},
         bot_allocations={
             name: {k: int(v) for k, v in g(f"bots.{name}").items()}
@@ -249,6 +267,8 @@ def _validate(cfg: Config) -> None:
         errs.append("default_policy.redistribution not in redistribution_options")
     if cfg.default_policy.get("info_policy") not in cfg.info_policy_options:
         errs.append("default_policy.info_policy not in info_policy_options")
+    if cfg.time_scale <= 0 or any(v <= 0 for v in cfg.phase_seconds.values()):
+        errs.append("phase seconds and time_scale must be > 0")
     if cfg.coins_per_currency_unit <= 0:
         errs.append("coins_per_currency_unit must be > 0")
     if errs:
