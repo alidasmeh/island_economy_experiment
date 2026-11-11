@@ -1,29 +1,19 @@
-import React, { createContext, useEffect, useState } from "react";
+import React, { createContext, useState } from "react";
+import { forgetLogin, storedLogin } from "../api";
 
-// Create the context
 export const AuthContext = createContext();
 
-// Create a provider component
+// The researcher is logged in while this tab holds credentials accepted by the game server.
 export const AuthProvider = ({ children }) => {
-  const [authData, setAuthData] = useState({
-    email: ""
+  const [authData, setAuthData] = useState(() => {
+    const s = storedLogin();
+    return { email: s ? s.username : "" };
   });
 
-  useEffect(() => {
-    const emailInLocalStorage = window.localStorage.getItem("email");
-    console.log("useEffect in AuthContext", emailInLocalStorage);
-    // if (emailInLocalStorage) {
-    //   if (emailInLocalStorage.includes("@mpib-berlin.mpg.de")) {
-        setAuthData({
-          email: emailInLocalStorage
-        });
-    //   }
-    // }
-  }, []);
+  const logout = () => {
+    forgetLogin();
+    setAuthData({ email: "" });
+  };
 
-  return (
-    <AuthContext.Provider value={{ authData, setAuthData }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ authData, setAuthData, logout }}>{children}</AuthContext.Provider>;
 };

@@ -12,6 +12,7 @@ import {
 } from "@mui/material";
 
 import { AuthContext } from "../contexts/AuthContext";
+import { login } from "../api";
 
 export default function LoginPage() {
   const navigator = useNavigate();
@@ -23,31 +24,14 @@ export default function LoginPage() {
   const { setAuthData } = useContext(AuthContext);
 
   const handleSubmit = async (event) => {
-    setError("");
     event.preventDefault();
-
+    setError("");
     try {
-      let backendURL =
-        process.env.REACT_APP_BACKEND_URL || "http://localhost:8000";
-      const response = await fetch(`${backendURL}/dashboard/login/${email}/${password}`);
-
-      if (!response.ok) {
-        setError("Provided info is wrong.");
-        throw new Error("Login failed");
-      }
-
-      const data = await response.json();
-      console.log(data);
-
-      setAuthData({
-        email: email,
-      });
-      window.localStorage.setItem("email", email);
+      const { username } = await login(email, password);
+      setAuthData({ email: username });
       navigator("/");
-      // You can save a token or user data in context/localStorage here
-    } catch (error) {
-      console.error("Error logging in:", error.message);
-      setError("Provided info is wrong.");
+    } catch (e) {
+      setError(e.message);
     }
   };
 
@@ -70,7 +54,7 @@ export default function LoginPage() {
             />
           </Box>
           <Typography align="center" component="h1" variant="h5">
-            Project Template -<br /> Admin Dashboard
+            Island Economy<br /> Researcher Dashboard
           </Typography>
           <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
             <TextField

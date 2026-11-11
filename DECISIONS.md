@@ -205,3 +205,21 @@ interface clean. Parameter values live in `backend/config/default.yaml`.
   Milestone 7 replaces them.
 - **Local dev ports.** `.claude/launch.json` uses ports 8010 (backend) and 3010 (frontend) so it
   does not clash with `docker compose` on 8000/3000/3001.
+
+## Dashboard: sessions (early part of Milestone 8)
+
+- **Pulled forward on request.** The dashboard's home page is now *Sessions*: create a session
+  (name, conditions, random or own seeds), list sessions, and a session page with the
+  participant link, the Prolific study URL, the waiting-room count and each group's condition,
+  seed, round, step and status (refreshes every 3 s). Live monitoring of individual players,
+  dropouts and data export remain Milestone 8.
+- **Login.** The template login only remembered a username. It now checks the credentials
+  against the admin API and keeps them (HTTP Basic) in `sessionStorage`, so they are gone when
+  the tab is closed and are never written to `localStorage`. A 401 logs the researcher out.
+- **Links.** The participant site's address comes from `REACT_APP_PARTICIPANT_URL` (set in
+  `compose.yml`; default `http://localhost:3000`). The Prolific URL uses Prolific's
+  `{{%PROLIFIC_PID%}}`, `{{%STUDY_ID%}}`, `{{%SESSION_ID%}}` placeholders.
+- **Group size** in the form is read from `GET /api/rules` (`n_players`), not hard-coded.
+- The coordinator condition is shown but disabled until Milestone 4. The template's user-list
+  pages (`FirstPage`, `ProjectPage`) are no longer routed.
+- Local dev profile `dashboard` runs on port 3011.

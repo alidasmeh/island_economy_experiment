@@ -14,8 +14,8 @@ import { AuthContext } from "./contexts/AuthContext";
 
 import LoginPage from "./pages/LoginPage";
 
-import FirstPage from "./pages/FirstPage";
-import ProjectPage from "./pages/ProjectPage";
+import SessionsPage from "./pages/SessionsPage";
+import SessionDetailPage from "./pages/SessionDetailPage";
 
 function App() {
   const { authData } = useContext(AuthContext);
@@ -50,17 +50,17 @@ function App() {
             path="/"
             element={
               authData?.email ? (
-                <FirstPage />
+                <SessionsPage />
               ) : (
                 <DelayedRedirect to="/login" replace />
               )
             }
           />
           <Route
-            path="/project/:userId/"
+            path="/sessions/:code"
             element={
               authData?.email ? (
-                <ProjectPage />
+                <SessionDetailPage />
               ) : (
                 <DelayedRedirect to="/login" replace />
               )

@@ -21,7 +21,7 @@ group governs itself. In the **coordinator** condition a fifth participant sets 
 | Part | Who uses it | What it is for |
 | --- | --- | --- |
 | **Participant website** | Participants | Instructions, waiting room, the game itself, final payoff |
-| **Researcher dashboard** | You | Meant for managing sessions and watching groups (see below: not ready yet) |
+| **Researcher dashboard** | You | Create sessions, get the study links, watch each group's progress |
 | **Game server** | Nobody directly | Runs every game, keeps the clocks, stores all data. Also has a researcher page for creating and checking sessions |
 | **Database** | Nobody directly | Where everything is stored |
 
@@ -44,13 +44,14 @@ of this project.
 
 ## Addresses you will use
 
-Replace `PARTICIPANT-SITE` and `GAME-SERVER` with the addresses above.
+Replace `PARTICIPANT-SITE`, `DASHBOARD` and `GAME-SERVER` with the addresses above.
 
 | Address | What you see |
 | --- | --- |
 | `PARTICIPANT-SITE/play?session=CODE` | **The study link for participants.** Instructions, then the waiting room, then the game |
 | `PARTICIPANT-SITE/instruction` | **Preview of the instructions** exactly as participants see them. Nothing is recorded |
-| `GAME-SERVER/docs` | **Researcher page** for creating sessions and checking on them (log in with the dashboard username and password) |
+| `DASHBOARD` | **Researcher dashboard.** Create sessions and watch them (log in with the dashboard username and password) |
+| `GAME-SERVER/docs` | Technical researcher page; can also create sessions (same login). Not needed if you use the dashboard |
 | `GAME-SERVER/api/admin/sessions` | List of all sessions (asks for the same login) |
 | `GAME-SERVER/api/admin/sessions/CODE` | One session: how many people are waiting, and each group's condition, round, phase and status |
 
@@ -61,10 +62,10 @@ Replace `PARTICIPANT-SITE` and `GAME-SERVER` with the addresses above.
 | Participant link | http://localhost:3000/play?session=AB12CD34 |
 | Participant link as Prolific would send it | http://localhost:3000/play?session=AB12CD34&PROLIFIC_PID=test001&STUDY_ID=pilot&SESSION_ID=s1 |
 | Instructions preview | http://localhost:3000/instruction |
-| Researcher page (create sessions) | http://localhost:8000/docs |
 | All sessions | http://localhost:8000/api/admin/sessions |
 | This session's progress | http://localhost:8000/api/admin/sessions/AB12CD34 |
-| Researcher dashboard | http://localhost:3001 |
+| Researcher dashboard (create and watch sessions) | http://localhost:3001 |
+| Technical researcher page | http://localhost:8000/docs |
 
 To try a whole game alone, open the participant link in four different browser windows
 (for example, private windows or different browsers). Each window counts as one
@@ -78,26 +79,31 @@ game's settings file, so the instructions always match the game.
 
 ## Running a session today
 
-1. **Create a session.** Open `GAME-SERVER/docs`, click **Authorize** and log in. Open
-   *POST /api/admin/sessions*, click **Try it out**, and fill in, for example:
+1. **Create a session.** Open the dashboard (on a laptop: http://localhost:3001) and log in.
+   The home page has a **Create a new session** form:
 
-   - `label`: a name you will recognise, e.g. `pilot 12 Nov`
-   - `conditions`: `["none"]` (the coordinator condition is not available yet)
-   - `seeds`: one number per group you plan, e.g. `[1, 2, 3]` for three groups
+   - **Name**: something you will recognise, e.g. `pilot 12 Nov` (only you see it).
+   - **Conditions**: *No coordinator* (the coordinator condition is not available yet).
+   - **Groups and seeds**: either let the dashboard pick random seeds (type how many groups
+     you plan), or type your own seeds, e.g. `1, 2, 3`. The form tells you how many groups
+     and participants this plans.
 
-   Click **Execute**. The answer contains the **session code**, e.g. `AB12CD34`.
+   Click **Create session**. You get a **session code** (e.g. `AB12CD34`) and two links with
+   **Copy** buttons.
 
    *What is a seed?* It fixes the luck of a group: starting coins, fishing skills, the
-   events at sea and the number of rounds. Using the same seed in both conditions gives
-   both conditions exactly the same luck, so differences come from the condition.
+   events at sea and the number of rounds. Each seed is played once in every chosen
+   condition, so both conditions get exactly the same luck and differences come from the
+   condition.
 
-2. **Put the link in Prolific:**
-   `PARTICIPANT-SITE/play?session=AB12CD34`
-   In Prolific, choose to record Prolific IDs **with URL parameters**. Prolific then adds
-   `PROLIFIC_PID`, `STUDY_ID` and `SESSION_ID` to the link by itself.
+2. **Put the link in Prolific.** Copy the **Study URL for Prolific** and paste it into
+   Prolific, with Prolific IDs recorded **with URL parameters**. Prolific fills in each
+   participant's ID itself. The other link (**Participant link**) is for trying the game
+   yourself.
 
-3. **Watch.** Open `GAME-SERVER/api/admin/sessions/AB12CD34` and refresh it to see how many
-   people are waiting and how far each group is.
+3. **Watch.** Click the session in the list. Its page shows how many people are in the
+   waiting room, how many groups have started, and each group's round, step and status. It
+   updates by itself every few seconds.
 
 **How participants move through the study**
 
@@ -122,15 +128,20 @@ game's settings file, so the instructions always match the game.
 
 ## The researcher dashboard
 
-**Today** the dashboard is still the institute's project template: a login page and a list of
-"users" from the template. It does **not** show this study's sessions or groups yet. Use the
-game server's researcher page described above instead.
+**Today** the dashboard lets you:
 
-**Planned** (milestone 8), the dashboard will let you:
+- log in with the dashboard username and password (you stay logged in until you close the tab),
+- create sessions (name, conditions, seeds),
+- see all sessions, newest first,
+- open a session to copy its links and watch the waiting room and every group (condition,
+  seed, round, step, running / finished).
 
-- create sessions and choose conditions and seeds,
-- watch every group live (round, phase, who is connected),
-- see dropouts and flagged groups,
+The number of rounds is shown to you on the dashboard only; participants never see it.
+
+**Planned** (milestone 8), the dashboard will also:
+
+- show who in each group is connected, and dropouts,
+- show flagged groups,
 - download all data as spreadsheets (CSV) and Parquet files.
 
 ---
@@ -155,5 +166,6 @@ only.
 | No-coordinator condition, end to end | Coordinator condition and coordinator screen (milestones 4 and 6) |
 | Instructions with an interactive example | Chat, private messages and bribe offers (milestone 5); the Talk step shows a placeholder until then |
 | Waiting room and automatic group forming | Consent page, comprehension quiz, practice rounds, questionnaire, Prolific completion link (milestone 7) |
-| Timers, timeouts, results after each round, final payoff | Computer players replacing dropouts, dashboard, data downloads (milestone 8) |
+| Timers, timeouts, results after each round, final payoff | Computer players replacing dropouts, dropout monitoring, data downloads (milestone 8) |
+| Dashboard: create sessions, study links, group progress | |
 | Complete data recording | Load test and pilot checklist (milestone 9) |

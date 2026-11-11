@@ -19,14 +19,8 @@ import { AuthContext } from "../contexts/AuthContext";
 // const drawerWidth = 240;
 
 function Header() {
-  const { setAuthData } = useContext(AuthContext);
-
-  const onLogout = () => {
-    window.localStorage.removeItem("email");
-    setAuthData({
-      email: "",
-    });
-  };
+  const { logout } = useContext(AuthContext);
+  const onLogout = logout;
 
   return (
     <>
@@ -41,7 +35,7 @@ function Header() {
         <Toolbar>
           {/* Flex container to space between title and logout */}
           <Box sx={{ flexGrow: 1 }}>
-            <Typography variant="h6">Template - Admin Dashboard</Typography>
+            <Typography variant="h6">Island Economy — Researcher Dashboard</Typography>
           </Box>
 
           {/* Logout Button */}

@@ -83,6 +83,7 @@ services:
     env_file: .env
     environment:
       - REACT_APP_BACKEND_URL=http://localhost:8000
+      - REACT_APP_PARTICIPANT_URL=http://localhost:3000
       - NODE_ENV=production
     restart: always
     healthcheck:
@@ -109,6 +110,7 @@ services:
       - /usr/src/app/node_modules
     environment:
       - REACT_APP_BACKEND_URL=http://localhost:8000
+      - REACT_APP_PARTICIPANT_URL=http://localhost:3000
       - NODE_ENV=development
       - PORT=3001
 

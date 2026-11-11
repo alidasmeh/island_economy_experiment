@@ -6,7 +6,7 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": [
         "-c",
-        "cd backend && EXTRA_CORS_ORIGINS=http://localhost:3010 DASHBOARD_USERNAME=admin DASHBOARD_PASSWORD=admin ISLAND_TIME_SCALE=${ISLAND_TIME_SCALE:-0.5} poetry run uvicorn app.main:app --host 127.0.0.1 --port 8010"
+        "cd backend && EXTRA_CORS_ORIGINS=http://localhost:3010,http://localhost:3011 DASHBOARD_USERNAME=admin DASHBOARD_PASSWORD=admin ISLAND_TIME_SCALE=${ISLAND_TIME_SCALE:-0.5} poetry run uvicorn app.main:app --host 127.0.0.1 --port 8010"
       ],
       "port": 8010
     },
@@ -15,7 +15,7 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": [
         "-c",
-        "cd backend && EXTRA_CORS_ORIGINS=http://localhost:3010 DASHBOARD_USERNAME=admin DASHBOARD_PASSWORD=admin ISLAND_TIME_SCALE=0.04 poetry run uvicorn app.main:app --host 127.0.0.1 --port 8010"
+        "cd backend && EXTRA_CORS_ORIGINS=http://localhost:3010,http://localhost:3011 DASHBOARD_USERNAME=admin DASHBOARD_PASSWORD=admin ISLAND_TIME_SCALE=0.04 poetry run uvicorn app.main:app --host 127.0.0.1 --port 8010"
       ],
       "port": 8010
     },
@@ -27,6 +27,15 @@
         "cd frontend && BROWSER=none PORT=3010 REACT_APP_BACKEND_URL=http://localhost:8010 npm start"
       ],
       "port": 3010
+    },
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd dashboard && BROWSER=none PORT=3011 REACT_APP_BACKEND_URL=http://localhost:8010 REACT_APP_PARTICIPANT_URL=http://localhost:3010 npm start"
+      ],
+      "port": 3011
     }
   ]
 }
