@@ -6,10 +6,12 @@ import Instructions from "../game/components/Instructions";
 import { useGame } from "../game/useGame";
 import { GameHeader, PolicyBanner, SharedState } from "../game/components/StatusBar";
 import DecisionPanel from "../game/components/DecisionPanel";
+import CoordinatorScreen from "../game/components/CoordinatorScreen";
 import {
   CommunicationPanel,
   EventPanel,
   FinalPanel,
+  PolicyWaitPanel,
   ResultsPanel,
   WaitingRoom,
 } from "../game/components/PhasePanels";
@@ -101,12 +103,24 @@ export default function PlayPage() {
     body = rulesError ? (
       <Alert severity="error">{rulesError}</Alert>
     ) : rules ? (
-      <Instructions rules={rules} condition="none" onDone={finishInstructions} />
+      <Instructions
+        rules={rules}
+        condition={snapshot.condition || "none"}
+        role={snapshot.role || "player"}
+        onDone={finishInstructions}
+      />
     ) : (
       <CircularProgress sx={{ mt: 4 }} />
     );
   } else if (snapshot.view === "waiting" || snapshot.view === "lobby") {
     body = <WaitingRoom snap={snapshot.view === "waiting" ? snapshot : { n_waiting: 1, n_needed: "?" }} />;
+  } else if (snapshot.view === "full") {
+    body = (
+      <Alert severity="info">
+        This session is already full, so there is no place for you in a group. Thank you for your interest. Please
+        return the study on Prolific.
+      </Alert>
+    );
   } else if (snapshot.view === "unavailable") {
     body = (
       <Alert severity="warning">
@@ -118,8 +132,9 @@ export default function PlayPage() {
     body = <GameScreen snap={snapshot} call={call} clockOffset={clockOffset} />;
   }
 
+  const wide = snapshot && snapshot.view === "game" && snapshot.role === "coordinator";
   return (
-    <Container maxWidth="sm" sx={{ py: 2, px: 2 }}>
+    <Container maxWidth={wide ? "md" : "sm"} sx={{ py: 2, px: 2 }}>
       {connection === "reconnecting" && snapshot && (
         <Alert severity="warning" sx={{ mb: 1.5 }}>
           Connection lost — reconnecting…
@@ -134,10 +149,20 @@ function GameScreen({ snap, call, clockOffset }) {
   if (snap.status === "aborted") {
     return <Alert severity="error">The game stopped because of a technical problem. Please contact the researchers.</Alert>;
   }
+  if (snap.role === "coordinator") {
+    return (
+      <>
+        <GameHeader snap={snap} clockOffset={clockOffset} />
+        {snap.phase !== "finished" && <SharedState snap={snap} />}
+        <CoordinatorScreen snap={snap} call={call} />
+      </>
+    );
+  }
   const key = `${snap.phase}-${snap.round}`;
   let panel = null;
   if (snap.phase === "finished") panel = <FinalPanel snap={snap} />;
   else if (snap.phase === "event") panel = <EventPanel key={key} snap={snap} call={call} />;
+  else if (snap.phase === "policy") panel = <PolicyWaitPanel snap={snap} />;
   else if (snap.phase === "communication") panel = <CommunicationPanel key={key} snap={snap} call={call} />;
   else if (snap.phase === "decision") panel = <DecisionPanel key={key} snap={snap} call={call} />;
   else if (snap.phase === "resolution") panel = <ResultsPanel key={key} snap={snap} call={call} />;

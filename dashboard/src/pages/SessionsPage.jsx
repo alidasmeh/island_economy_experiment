@@ -25,10 +25,10 @@ import { AuthContext } from "../contexts/AuthContext";
 import { createSession, getRules, listSessions, UnauthorizedError } from "../api";
 import { LinkBox } from "../components/LinkBox";
 
-// Conditions the game server can run today; the coordinator condition arrives in milestone 4.
+// The two conditions of Study 1.
 const CONDITIONS = [
   { value: "none", label: "No coordinator", available: true },
-  { value: "human", label: "Human coordinator (coming in milestone 4)", available: false },
+  { value: "human", label: "Human coordinator (groups of 4 islanders + 1 coordinator)", available: true },
 ];
 
 function parseSeeds(text) {
@@ -166,7 +166,8 @@ function CreateSessionForm({ onCreated }) {
               {groupSize && (
                 <>
                   {" "}
-                  of {groupSize} — <b>{totalGroups * groupSize}</b> participants in total
+                  — <b>{n * conditions.reduce((t, c) => t + groupSize + (c === "human" ? 1 : 0), 0)}</b> participants in
+                  total
                 </>
               )}
               . Later arrivals are told the session is full.

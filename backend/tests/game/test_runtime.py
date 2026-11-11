@@ -187,7 +187,12 @@ async def test_snapshot_never_reveals_hidden_information(fast_cfg):
         assert snap["observation"]["wealth"] == rt.state.wealth[seat]
 
 
-async def test_runtime_rejects_unsupported_condition(fast_cfg):
-    with pytest.raises(ValueError, match="Milestone 4"):
-        GroupRuntime(group_id="g", session_id="S", condition="human", seed=1, cfg=fast_cfg, seats=SEATS,
-                     store=MemoryEventStore(), transport=FakeTransport())
+async def test_runtime_checks_condition_and_coordinator(fast_cfg):
+    kw = dict(group_id="g", session_id="S", seed=1, cfg=fast_cfg, seats=SEATS, store=MemoryEventStore(),
+              transport=FakeTransport())
+    with pytest.raises(ValueError, match="unknown condition"):
+        GroupRuntime(condition="ai", **kw)
+    with pytest.raises(ValueError, match="exactly one coordinator"):
+        GroupRuntime(condition="human", **kw)
+    with pytest.raises(ValueError, match="no coordinator"):
+        GroupRuntime(condition="none", coordinator="p_c", **kw)

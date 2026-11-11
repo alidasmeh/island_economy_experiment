@@ -38,7 +38,8 @@ class Participant(Base):
 
     id = Column(String(32), primary_key=True)                 # e.g. "p_3f9a..." (random)
     session_id = Column(String(32), ForeignKey("ie_sessions.id"), index=True, nullable=False)
-    role = Column(String(20), default="player")               # player | coordinator
+    role = Column(String(20), nullable=True)                  # player | coordinator (set when allocated)
+    condition = Column(String(20), nullable=True)             # none | human (set when allocated)
     status = Column(String(30), default="joined")             # joined | waiting | playing | finished | ...
     group_id = Column(String(40), nullable=True, index=True)
     seat = Column(Integer, nullable=True)

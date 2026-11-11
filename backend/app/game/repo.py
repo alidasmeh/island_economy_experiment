@@ -106,13 +106,17 @@ async def update_participant(pid: str, **fields: Any) -> None:
 
 
 async def create_group(*, group_id: str, session_id: str, index: int, condition: str, seed: int, n_rounds: int,
-                       seats: list[str]) -> None:
+                       seats: list[str], coordinator: str | None = None) -> None:
+    """Players get seats 0..N-1; the coordinator (human condition) has no seat."""
     async with get_db() as db:
         db.add(Group(id=group_id, session_id=session_id, index_in_session=index, condition=condition, seed=seed,
                      n_rounds=n_rounds))
         for seat, pid in enumerate(seats):
             p = await db.get(Participant, pid)
             p.group_id, p.seat, p.status, p.role = group_id, seat, "playing", "player"
+        if coordinator is not None:
+            p = await db.get(Participant, coordinator)
+            p.group_id, p.seat, p.status, p.role = group_id, None, "playing", "coordinator"
         await db.commit()
 
 

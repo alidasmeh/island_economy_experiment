@@ -29,12 +29,13 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 | `backend/app/bots/` | Bot strategies: cooperative, selfish, conditional, random |
 | `backend/app/coordinator/` | Coordinator interface (observation in, action out) and scripted stub |
 | `backend/app/sim/` | Headless simulation CLI, dilemma check, plots |
-| `backend/app/game/` | Live game: lobby/waiting room, group runtime (phases, timers), event store, DB access |
+| `backend/app/game/` | Live game: lobby (condition/role allocation, waiting room), group runtime (phases, timers, policy step), event store, DB access |
 | `backend/app/sockets/sockets.py` | Socket.IO protocol (authenticated per participant) |
 | `backend/app/routes/game_routes.py` | REST: participant join, admin session management |
 | `backend/app/models/game_models.py` | Tables: sessions, participants, tokens, Prolific mapping, groups, append-only event log |
 | `backend/app/devtools/fake_players.py` | Dev tool: scripted clients that fill seats for local testing |
 | `frontend/src/pages/PlayPage.jsx`, `frontend/src/game/` | Participant game UI |
+| `frontend/src/game/components/CoordinatorScreen.jsx` | Coordinator dashboard: rule form, group charts, per-islander table |
 | `frontend/src/game/components/Instructions.jsx` | Participant instructions (numbers from `GET /api/rules`); preview at `/instruction` |
 | `backend/config/default.yaml` | **All** game parameters (nothing numeric is hard-coded) |
 | `backend/config/spec_original.yaml` | Original spec parameter values (before calibration), for reproducibility |
@@ -48,7 +49,7 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 - [x] 1. Game engine: config loading, `resolve_round`, state dynamics, unit tests
 - [x] 2. Simulation CLI with bots, welfare/stock plots, dilemma check
 - [x] 3. Multiplayer flow: rooms, phases, timers, player UI, `none` condition end to end
-- [ ] 4. Human coordinator dashboard and policy pipeline
+- [x] 4. Human coordinator dashboard and policy pipeline
 - [ ] 5. Communication and bribery: chat, DMs, escrow, favors, detection
 - [ ] 6. Coordinator decision support: policy preview, lever-change logging, coordinator dropout
 - [ ] 7. Onboarding and exit: consent, instructions, quiz, practice, questionnaire, payment, Prolific
@@ -104,35 +105,43 @@ DASHBOARD_USERNAME=admin DASHBOARD_PASSWORD=admin ISLAND_TIME_SCALE=0.2 poetry r
 # 2. frontend (http://localhost:3000)
 cd frontend && npm install && npm start
 
-# 3. create a session (condition `none`; seeds fix endowments, skills, events and T)
+# 3. create a session (conditions `none` and/or `human`; seeds fix endowments, skills, events and T)
 curl -u admin:admin -X POST localhost:8000/api/admin/sessions \
-  -H 'content-type: application/json' -d '{"label":"test","conditions":["none"],"seeds":[1,2,3]}'
+  -H 'content-type: application/json' -d '{"label":"test","conditions":["none","human"],"seeds":[1,2,3]}'
 # -> {"session_code": "AB12CD34", ...}
 
 # 4. open the participant link (Prolific appends PROLIFIC_PID, STUDY_ID, SESSION_ID)
 open "http://localhost:3000/play?session=AB12CD34&PROLIFIC_PID=me"
 
-# 5. fill the other seats with scripted clients (testing only)
-cd backend && poetry run python -m app.devtools.fake_players --session AB12CD34 --n 3
+# 5. fill the other seats with scripted clients (testing only; a fake coordinator sets bots.stub_policy)
+cd backend && poetry run python -m app.devtools.fake_players --session AB12CD34 --n 3   # --n 4 for a human group
 
 # live status of a session's groups
 curl -u admin:admin localhost:8000/api/admin/sessions/AB12CD34
 ```
 
-`.claude/launch.json` has the same commands as `backend`, `backend-fast` (timers × 0.04) and `frontend`.
+`.claude/launch.json` has the same commands as `backend`, `backend-fast` (timers × 0.04), `frontend` and `dashboard` (ports 8010/3010/3011).
 
 **How a game runs.** Participants who open the link get a pseudonymous ID and an access
-token, then wait in the session's waiting room. As soon as 4 are waiting they become the
-session's next planned group (condition + seed, in order). Each round runs the phases
-Event → Talk → Decide → Results on server-side timers; a phase ends early once everyone is
-done. Missing decisions repeat the player's last split (round 1: 4/3/3) and are logged as
+token. When they first connect they are **allocated** a condition and a role: the earliest
+planned group that still needs people, and inside a `human` group a random role weighted by
+open seats (so each newcomer becomes the coordinator with probability 1/5 while all seats are
+open). The instructions are then specific to condition and role. After the instructions they
+wait in the waiting room; a planned group starts as soon as enough people allocated to its
+condition are waiting (4 islanders, plus 1 coordinator in `human`). Each round runs the
+phases Event → (Policy, `human` only) → Talk → Decide → Results on server-side timers; a
+phase ends early once everyone is done. In the Policy step the coordinator's submission
+takes effect when the step ends; without one the previous rules stay (`policy` event with
+`timeout: true`). Missing decisions repeat the player's last split (round 1: 4/3/3) and are logged as
 timeouts. Every action is appended to the `ie_event_log` table.
 
 **Socket protocol** (`backend/app/sockets/sockets.py`): the client connects with
 `auth={token}` and receives `state` snapshots; it sends `enter_waiting_room`,
-`submit_decision`, `ready` and `submit_rating`, each acknowledged with `{ok, error?}`.
-What a participant may see is built only by `GroupRuntime.snapshot_for()`, which uses the
-engine's observation functions.
+`submit_policy` (coordinator), `submit_decision`, `ready` and `submit_rating`, each
+acknowledged with `{ok, error?}`. What a participant may see is built only by
+`GroupRuntime.snapshot_for_participant()`, which uses the engine's observation functions
+(`player_observation`, `coordinator_observation`). A non-human `CoordinatorBackend` (e.g.
+the scripted stub) can take the coordinator seat through the same observation → action path.
 
 **Single process.** Live game state is held in memory, so the backend must run as one
 replica, and a restart ends the games in progress (participants then see a "game no longer

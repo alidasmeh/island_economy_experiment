@@ -29,14 +29,25 @@ export function GameHeader({ snap, clockOffset }) {
             </Typography>
           </Box>
         )}
-        <Box textAlign="right">
-          <Typography variant="overline" color="text.secondary" lineHeight={1.2}>
-            Coins · Savings
-          </Typography>
-          <Typography variant="h6" lineHeight={1.2}>
-            {coins(obs.wealth)} · {coins(obs.capital)}
-          </Typography>
-        </Box>
+        {snap.role === "coordinator" ? (
+          <Box textAlign="right">
+            <Typography variant="overline" color="text.secondary" lineHeight={1.2}>
+              Your role
+            </Typography>
+            <Typography variant="h6" lineHeight={1.2}>
+              Coordinator
+            </Typography>
+          </Box>
+        ) : (
+          <Box textAlign="right">
+            <Typography variant="overline" color="text.secondary" lineHeight={1.2}>
+              Coins · Savings
+            </Typography>
+            <Typography variant="h6" lineHeight={1.2}>
+              {coins(obs.wealth)} · {coins(obs.capital)}
+            </Typography>
+          </Box>
+        )}
       </Stack>
       {snap.phase !== "finished" && (
         <Stack direction="row" spacing={0.5} sx={{ mt: 1, flexWrap: "wrap", rowGap: 0.5 }}>
@@ -99,10 +110,11 @@ export function PolicyBanner({ snap }) {
   if (p.tax_rate > 0) rules.push(`Tax ${Math.round(p.tax_rate * 100)}% on fishing income, ${describeRedistribution(p.redistribution)}`);
   if (p.match_rate > 0) rules.push(`Contributions matched at ${Math.round(p.match_rate * 100)}% from the tax pot`);
   if (p.insurance) rules.push(`Storm insurance on (premium ${coins(snap.preview.insurance_premium)} coins per round)`);
+  if (snap.has_coordinator && p.info_policy === "totals_only") rules.push("Only group totals are shown after each round");
   return (
     <Paper elevation={0} sx={{ p: 1.5, mb: 1.5, bgcolor: "action.hover" }}>
       <Typography variant="body2" fontWeight={600}>
-        {snap.has_coordinator ? "Coordinator's rules" : "No coordinator — your group governs itself"}
+        {snap.has_coordinator ? "The coordinator's rules" : "No coordinator — your group governs itself"}
       </Typography>
       {p.announcement && (
         <Typography variant="body2" sx={{ mt: 0.5, fontStyle: "italic", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -110,7 +122,11 @@ export function PolicyBanner({ snap }) {
         </Typography>
       )}
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-        {rules.length ? rules.join(" · ") : "No quota, no tax, no fines, no insurance."}
+        {rules.length
+          ? rules.join(" · ")
+          : snap.has_coordinator && snap.round <= 1 && snap.phase === "policy"
+            ? "No rules yet."
+            : "No quota, no tax, no fines, no insurance."}
       </Typography>
     </Paper>
   );

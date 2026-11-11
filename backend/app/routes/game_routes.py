@@ -132,4 +132,15 @@ async def rules() -> dict[str, Any]:
         "coins_per_currency_unit": cfg.coins_per_currency_unit,
         "currency": cfg.currency,
         "show_up_fee": cfg.show_up_fee,
+        # Coordinator condition
+        "levers": {name: {"min": r.min, "max": r.max, "step": r.step}
+                   for name, r in (("quota", cfg.lever_quota), ("tax_rate", cfg.lever_tax_rate),
+                                   ("match_rate", cfg.lever_match_rate), ("fine", cfg.lever_fine),
+                                   ("audit_prob", cfg.lever_audit_prob))},
+        "redistribution_options": list(cfg.redistribution_options),
+        "info_policy_options": list(cfg.info_policy_options),
+        "announcement_max_chars": cfg.announcement_max_chars,
+        "insurance_premium": cfg.insurance_premium,
+        "infra_gain_per_pot_coin": cfg.infra_gain_per_pot_coin,
+        "welfare_bonus_rate": cfg.welfare_bonus_rate,
     }

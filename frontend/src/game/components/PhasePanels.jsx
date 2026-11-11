@@ -16,13 +16,13 @@ import {
 } from "@mui/material";
 import { coins, describeEvent, signed } from "../format";
 
-function ReadyButton({ snap, call, label = "Continue" }) {
+export function ReadyButton({ snap, call, label = "Continue" }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   if (snap.done) {
     return (
       <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-        Waiting for the others ({snap.n_done} of {snap.n_players} ready). The next step starts when everyone is
+        Waiting for the others ({snap.n_done} of {snap.n_members || snap.n_players} ready). The next step starts when everyone is
         ready or the time is up.
       </Typography>
     );
@@ -198,6 +198,18 @@ export function ResultsPanel({ snap, call }) {
   );
 }
 
+export function PolicyWaitPanel({ snap }) {
+  return (
+    <Paper elevation={0} sx={{ p: 2, border: 1, borderColor: "divider" }}>
+      <Typography variant="h6" gutterBottom>The coordinator is setting the rules</Typography>
+      <Typography variant="body2">
+        The coordinator — another participant — is choosing this round's rules. You will see them as soon as they
+        are set. If the coordinator does not choose in time, the current rules stay in force.
+      </Typography>
+    </Paper>
+  );
+}
+
 export function FinalPanel({ snap }) {
   const f = snap.final;
   if (!f) return null;
@@ -222,6 +234,11 @@ export function WaitingRoom({ snap }) {
   return (
     <Paper elevation={0} sx={{ p: 3, border: 1, borderColor: "divider", textAlign: "center" }}>
       <Typography variant="h5" gutterBottom>Waiting for other participants</Typography>
+      {snap.role === "coordinator" && (
+        <Typography variant="body1" sx={{ mb: 1 }}>
+          You are the <b>coordinator</b> of your group.
+        </Typography>
+      )}
       <Typography variant="body1">
         {snap.n_waiting} of {snap.n_needed} participants are here.
       </Typography>

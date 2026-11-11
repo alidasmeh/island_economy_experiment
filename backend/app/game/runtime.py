@@ -7,14 +7,21 @@ only through two small interfaces:
 * ``EventStore.append`` — append-only logging of everything that happens;
 * ``Transport.send``   — push a JSON message to one participant.
 
-What a participant receives is built by ``snapshot_for(seat)``, which uses the
-engine's observation functions; nothing else about other players is ever sent.
+What a participant receives is built by ``snapshot_for_participant``, which uses
+the engine's observation functions; nothing else about other players is ever sent.
+
+Coordinator (``human`` condition): a fifth participant who has no seat. In the
+policy phase their dashboard input is turned into a ``CoordinatorAction`` and
+applied when the phase ends; if nothing arrives, the previous policy stays
+(logged ``timeout=true``). A non-human ``CoordinatorBackend`` (e.g. the scripted
+stub used in tests) can fill the same slot through ``act(observation)``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import string
 import time
 from collections.abc import Awaitable, Callable
@@ -24,6 +31,7 @@ from typing import Any, Protocol
 from app.engine import (
     Config,
     Decision,
+    Policy,
     ValidationError,
     default_policy,
     draw_group_setup,
@@ -33,15 +41,22 @@ from app.engine import (
     settle_game,
     timeout_decision,
     validate_decision,
+    validate_policy,
 )
-from app.engine.observation import player_observation, public_policy
+from app.engine.observation import coordinator_observation, group_summary, player_observation, public_policy
 from app.engine.types import RoundLedger
+
+from app.coordinator.interface import CoordinatorAction, CoordinatorBackend
 
 from .store import EventStore
 
 log = logging.getLogger(__name__)
 
 READY_PHASES = ("event", "communication", "resolution")
+COORDINATOR_LABEL = "Coordinator"
+POLICY_LEVERS = ("quota", "tax_rate", "redistribution", "match_rate", "fine", "audit_prob", "insurance",
+                 "info_policy", "announcement")
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 class Transport(Protocol):
@@ -64,15 +79,22 @@ def phases_for(condition: str) -> list[str]:
 class GroupRuntime:
     def __init__(self, *, group_id: str, session_id: str, condition: str, seed: int, cfg: Config,
                  seats: list[str], store: EventStore, transport: Transport, code_version: str = "",
+                 coordinator: str | None = None, coordinator_backend: CoordinatorBackend | None = None,
                  on_finish: Callable[["GroupRuntime"], Awaitable[None]] | None = None,
                  clock: Callable[[], float] = time.time):
-        if condition != "none":
-            raise ValueError(f"condition {condition!r} is not available yet (Milestone 4)")
+        if condition not in ("none", "human"):
+            raise ValueError(f"unknown condition {condition!r}")
         if len(seats) != cfg.n_players:
             raise ValueError(f"need {cfg.n_players} players, got {len(seats)}")
+        if condition == "none" and (coordinator or coordinator_backend):
+            raise ValueError("the no-coordinator condition has no coordinator")
+        if condition == "human" and (coordinator is None) == (coordinator_backend is None):
+            raise ValueError("the human condition needs exactly one coordinator (participant or backend)")
         self.group_id, self.session_id, self.condition, self.seed = group_id, session_id, condition, seed
         self.cfg, self.store, self.transport = cfg, store, transport
         self.seats = list(seats)
+        self.coordinator = coordinator
+        self.coordinator_backend = coordinator_backend
         self.code_version = code_version
         self.on_finish = on_finish
         self.clock = clock
@@ -87,7 +109,8 @@ class GroupRuntime:
         self.phase_started = 0.0
         self.deadline = 0.0
         self.submissions: dict[int, tuple[Decision, dict[str, Any]]] = {}
-        self.ready: set[int] = set()
+        self.pending_action: tuple[CoordinatorAction, dict[str, Any]] | None = None
+        self.ready: set[str] = set()                      # participant ids done with the current phase
         self.ratings: dict[tuple[int, int], int] = {}
         self.settlement = None
         self.status = "running"
@@ -100,7 +123,15 @@ class GroupRuntime:
         try:
             return self.seats.index(participant_id)
         except ValueError:
+            if participant_id == self.coordinator:
+                raise ActionError("only islanders can do this") from None
             raise ActionError("not a member of this group") from None
+
+    def members(self) -> list[str]:
+        return self.seats + ([self.coordinator] if self.coordinator else [])
+
+    def is_coordinator(self, participant_id: str) -> bool:
+        return self.coordinator is not None and participant_id == self.coordinator
 
     async def _log(self, kind: str, payload: dict[str, Any] | None = None, *, participant_id: str | None = None,
                    round: int | None = None) -> None:
@@ -112,8 +143,18 @@ class GroupRuntime:
         return list(range(len(self.seats)))
 
     def _all_done(self) -> bool:
-        done = set(self.submissions) if self.phase == "decision" else self.ready
-        return all(s in done for s in self._active_seats())
+        if self.phase == "decision":
+            return all(s in self.submissions for s in self._active_seats())
+        if self.phase == "policy":
+            return self.pending_action is not None
+        return all(pid in self.ready for pid in self.members())
+
+    def _n_done(self) -> int:
+        if self.phase == "decision":
+            return len(self.submissions)
+        if self.phase == "policy":
+            return int(self.pending_action is not None)
+        return len(self.ready)
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -129,6 +170,8 @@ class GroupRuntime:
                 "seats": {str(i): pid for i, pid in enumerate(self.seats)},
                 "wealth0": list(self.setup.wealth0), "skills": list(self.setup.skills),
                 "events": list(self.setup.events), "policy": self.policy.to_dict(),
+                "coordinator": self.coordinator,
+                "coordinator_backend": type(self.coordinator_backend).__name__ if self.coordinator_backend else None,
             }, round=0)
             for t in range(1, self.setup.n_rounds + 1):
                 self.current_event = self.setup.event_for(self.cfg, t)
@@ -136,6 +179,8 @@ class GroupRuntime:
                     if phase == "resolution":
                         await self._resolve(t)
                     await self._run_phase(phase, t)
+                    if phase == "policy":
+                        await self._apply_policy()
             await self._finish()
         except asyncio.CancelledError:
             self.status = "aborted"
@@ -155,11 +200,17 @@ class GroupRuntime:
         self.ready = set()
         if phase == "decision":
             self.submissions = {}
+        if phase == "policy":
+            self.pending_action = None
         self._advance = asyncio.Event()
         await self._log("phase_started", {"phase": phase, "seconds": seconds, "deadline": self.deadline,
                                           "event": self.current_event.name if self.current_event else None})
         await self.broadcast()
-        grace = self.cfg.phase_grace_seconds if phase == "decision" else 0.0
+        if phase == "policy" and self.coordinator_backend is not None:
+            action = self.coordinator_backend.act(self.coordinator_view())
+            self.pending_action = (action, {"response_ms": 0, "backend": type(self.coordinator_backend).__name__})
+            self._advance.set()
+        grace = self.cfg.phase_grace_seconds if phase in ("decision", "policy") else 0.0
         ended_by = "all_ready"
         try:
             if self.cfg.phase_end_when_all_ready.get(phase, False):
@@ -171,7 +222,21 @@ class GroupRuntime:
             ended_by = "timeout"
         await self._log("phase_ended", {"phase": phase, "ended_by": ended_by,
                                         "elapsed": self.clock() - self.phase_started,
-                                        "n_done": len(self.submissions) if phase == "decision" else len(self.ready)})
+                                        "n_done": self._n_done()})
+
+    async def _apply_policy(self) -> None:
+        """End of the policy phase: the submitted action takes effect, or the old policy stays."""
+        if self.pending_action is None:
+            await self._log("policy", {"timeout": True, "policy": self.policy.to_dict(), "changed": []},
+                            participant_id=self.coordinator)
+            return
+        action, meta = self.pending_action
+        before = self.policy.to_dict()
+        self.policy = action.policy
+        after = self.policy.to_dict()
+        await self._log("policy", {"timeout": False, "policy": after,
+                                   "changed": [k for k in after if after[k] != before[k]], **meta},
+                        participant_id=self.coordinator)
 
     async def _resolve(self, t: int) -> None:
         decisions = []
@@ -192,7 +257,7 @@ class GroupRuntime:
                                   "welfare": ledger.group.welfare})
 
     async def _finish(self) -> None:
-        self.settlement = settle_game(self.state, self.cfg, has_coordinator=self.condition != "none")
+        self.settlement = settle_game(self.state, self.cfg, has_coordinator=self.condition == "human")
         self.phase, self.status = "finished", "finished"
         await self._log("game_finished", {"settlement": asdict(self.settlement)})
         await self.broadcast()
@@ -243,12 +308,54 @@ class GroupRuntime:
         await self.broadcast()
         return {"ok": True}
 
+    def coordinator_view(self):
+        """The coordinator's observation (the one function both human and scripted coordinators get)."""
+        return coordinator_observation(self.state, self.policy, self.cfg, ledgers=self.ledgers,
+                                       event=self.current_event)
+
+    async def submit_policy(self, participant_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Coordinator dashboard input -> validated CoordinatorAction, applied when the phase ends.
+
+        Levers not included keep their current value. Favors are kept as they are (they are
+        set from the inbox in Milestone 5).
+        """
+        if participant_id not in self.members():
+            raise ActionError("not a member of this group")
+        now = self.clock()
+        try:
+            if not self.is_coordinator(participant_id):
+                raise ActionError("only the coordinator can set the rules")
+            if self.phase != "policy":
+                raise ActionError("rules can only be set in the policy phase")
+            if int(data.get("round", self.round)) != self.round:
+                raise ActionError("policy is for a different round")
+            if self.pending_action is not None:
+                raise ActionError("rules already submitted for this round")
+            if now > self.deadline + self.cfg.phase_grace_seconds:
+                raise ActionError("the policy phase is over")
+            policy = _parse_policy(data, self.policy)
+            validate_policy(policy, self.cfg, n_players=len(self.seats))
+        except (ActionError, ValidationError, TypeError, ValueError) as exc:
+            await self._log("action_rejected", {"action": "submit_policy", "error": str(exc), "data": data},
+                            participant_id=participant_id)
+            raise ActionError(str(exc)) from None
+        meta = {"response_ms": round((now - self.phase_started) * 1000),
+                "client_response_ms": _opt_int(data.get("client_response_ms")),
+                "lever_changes": _opt_int(data.get("lever_changes"))}
+        self.pending_action = (CoordinatorAction(policy=policy), meta)
+        await self._log("policy_submitted", {"policy": policy.to_dict(), **meta}, participant_id=participant_id)
+        if self._all_done():
+            self._advance.set()
+        await self.broadcast()
+        return {"ok": True}
+
     async def mark_ready(self, participant_id: str, phase: str) -> dict[str, Any]:
-        seat = self.seat_of(participant_id)
+        if participant_id not in self.members():
+            raise ActionError("not a member of this group")
         if phase != self.phase or phase not in READY_PHASES:
             raise ActionError("not in that phase")
-        if seat not in self.ready:
-            self.ready.add(seat)
+        if participant_id not in self.ready:
+            self.ready.add(participant_id)
             await self._log("ready", {"phase": phase, "seconds_into_phase": self.clock() - self.phase_started},
                             participant_id=participant_id)
             if self._all_done():
@@ -276,7 +383,66 @@ class GroupRuntime:
 
     async def broadcast(self, only: list[int] | None = None) -> None:
         seats = only if only is not None else range(len(self.seats))
-        await asyncio.gather(*(self.transport.send(self.seats[s], "state", self.snapshot_for(s)) for s in seats))
+        sends = [self.transport.send(self.seats[s], "state", self.snapshot_for(s)) for s in seats]
+        if only is None and self.coordinator:
+            sends.append(self.transport.send(self.coordinator, "state", self.coordinator_snapshot()))
+        await asyncio.gather(*sends)
+
+    def snapshot_for_participant(self, participant_id: str) -> dict[str, Any]:
+        if self.is_coordinator(participant_id):
+            return self.coordinator_snapshot()
+        return self.snapshot_for(self.seat_of(participant_id))
+
+    def _common_snapshot(self) -> dict[str, Any]:
+        return {
+            "view": "game",
+            "status": self.status,
+            "condition": self.condition,
+            "has_coordinator": self.condition == "human",
+            "labels": [seat_label(i) for i in range(len(self.seats))],
+            "phases": phases_for(self.condition),
+            "phase": self.phase,
+            "round": self.round,
+            "phase_seconds": self.cfg.phase_seconds.get(self.phase),
+            "deadline_ms": int(self.deadline * 1000),
+            "server_now_ms": int(self.clock() * 1000),
+            "n_done": self._n_done(),
+            "n_players": len(self.seats),
+            "n_members": len(self.members()),            # players + coordinator (who must be ready)
+            "policy": public_policy(self.policy),
+            "currency": self.cfg.currency,
+        }
+
+    def coordinator_snapshot(self) -> dict[str, Any]:
+        """Everything the coordinator's dashboard shows; built from coordinator_observation."""
+        obs = self.coordinator_view().to_dict()
+        last = self.ledgers[-1] if self.ledgers else None
+        pending = self.pending_action[0].policy.to_dict() if (self.phase == "policy" and self.pending_action) else None
+        snap = {
+            **self._common_snapshot(),
+            "role": "coordinator",
+            "seat": None,
+            "label": COORDINATOR_LABEL,
+            "done": (pending is not None) if self.phase == "policy" else (self.coordinator in self.ready),
+            "observation": obs,
+            "full_policy": self.policy.to_dict(),
+            "submitted_policy": pending,
+            "last_round_group": group_summary(last) if last else None,
+            "final": None,
+        }
+        if self.settlement is not None:
+            st = self.settlement
+            snap["final"] = {
+                "group_payoff_coins": sum(st.payoff_coins),
+                "welfare_bonus_rate": self.cfg.welfare_bonus_rate,
+                "welfare_bonus": st.coordinator_welfare_bonus,
+                "bribe_income": st.coordinator_bribe_income,
+                "fines": st.coordinator_fines,
+                "payoff_coins": st.coordinator_payoff_coins,
+                "payoff_money": st.coordinator_payoff_money,
+                "coins_per_currency_unit": self.cfg.coins_per_currency_unit,
+            }
+        return snap
 
     def snapshot_for(self, seat: int) -> dict[str, Any]:
         last = self.ledgers[-1] if self.ledgers else None
@@ -285,22 +451,11 @@ class GroupRuntime:
         ev = self.current_event
         mine = self.submissions.get(seat) if self.phase == "decision" else None
         snap: dict[str, Any] = {
-            "view": "game",
-            "status": self.status,
-            "condition": self.condition,
-            "has_coordinator": self.condition != "none",
+            **self._common_snapshot(),
+            "role": "player",
             "seat": seat,
             "label": seat_label(seat),
-            "labels": [seat_label(i) for i in range(len(self.seats))],
-            "phases": phases_for(self.condition),
-            "phase": self.phase,
-            "round": self.round,
-            "phase_seconds": self.cfg.phase_seconds.get(self.phase),
-            "deadline_ms": int(self.deadline * 1000),
-            "server_now_ms": int(self.clock() * 1000),
-            "done": (seat in self.submissions) if self.phase == "decision" else (seat in self.ready),
-            "n_done": len(self.submissions) if self.phase == "decision" else len(self.ready),
-            "n_players": len(self.seats),
+            "done": (seat in self.submissions) if self.phase == "decision" else (self.seats[seat] in self.ready),
             "observation": obs,
             "preview": {
                 "catchability": self.cfg.catchability, "price": self.cfg.price,
@@ -310,14 +465,12 @@ class GroupRuntime:
                 "quota": self.policy.quota, "insurance_premium": self.cfg.insurance_premium if self.policy.insurance else 0,
                 "effort_points": self.cfg.effort_points,
             },
-            "policy": public_policy(self.policy),
             "my_decision": ({"harvest": mine[0].harvest, "contribute": mine[0].contribute, "save": mine[0].save,
                              "transfer_to": mine[0].transfer_to, "transfer_amount": mine[0].transfer_amount}
                             if mine else None),
             "my_rating": self.ratings.get((self.round, seat)),
             "history": self._history_for(seat),
             "final": None,
-            "currency": self.cfg.currency,
         }
         if self.settlement is not None:
             snap["final"] = {
@@ -344,6 +497,30 @@ class GroupRuntime:
                 "stock_after": led.group.stock_after, "infra_after": led.group.infra_after,
             })
         return out
+
+
+def _parse_policy(data: dict[str, Any], current: Policy) -> Policy:
+    """Dashboard input -> Policy. Missing levers keep their current value; favors are kept."""
+    d = current.to_dict()
+    for k in POLICY_LEVERS:
+        if k not in data or data[k] is None:
+            continue
+        v = data[k]
+        if k == "quota":
+            d[k] = _int(v)
+        elif k in ("tax_rate", "match_rate", "fine", "audit_prob"):
+            if isinstance(v, bool):
+                raise ValueError(f"{k} must be a number")
+            d[k] = float(v)
+        elif k == "insurance":
+            if not isinstance(v, bool):
+                raise ValueError("insurance must be on/off")
+            d[k] = v
+        else:
+            if not isinstance(v, str):
+                raise ValueError(f"{k} must be text")
+            d[k] = _CONTROL_CHARS.sub("", v).strip() if k == "announcement" else v
+    return Policy.from_dict(d)
 
 
 def _int(v: Any) -> int:

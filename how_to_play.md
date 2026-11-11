@@ -11,8 +11,9 @@ Four participants ("islanders") share one sea. Each round they split 10 effort p
 between **fishing** (coins now), **building infrastructure** (better fishing for everyone
 later) and **saving** (safe private coins). Over-fishing shrinks the fish stock for
 everyone; below a threshold it stops growing back. In the **no-coordinator** condition the
-group governs itself. In the **coordinator** condition a fifth participant sets the rules
-(coming next). At the end, each participant's coins plus savings become a bonus payment.
+group governs itself. In the **coordinator** condition a fifth participant, chosen by lottery, sets the
+rules each round (quota, tax, insurance and more). At the end, each islander's coins plus savings become a bonus
+payment; the coordinator earns a share of the islanders' total.
 
 ---
 
@@ -49,7 +50,7 @@ Replace `PARTICIPANT-SITE`, `DASHBOARD` and `GAME-SERVER` with the addresses abo
 | Address | What you see |
 | --- | --- |
 | `PARTICIPANT-SITE/play?session=CODE` | **The study link for participants.** Instructions, then the waiting room, then the game |
-| `PARTICIPANT-SITE/instruction` | **Preview of the instructions** exactly as participants see them. Nothing is recorded |
+| `PARTICIPANT-SITE/instruction` | **Preview of the instructions** exactly as participants see them, with buttons to switch between the three versions (no coordinator, islander with coordinator, coordinator). Nothing is recorded |
 | `DASHBOARD` | **Researcher dashboard.** Create sessions and watch them (log in with the dashboard username and password) |
 | `GAME-SERVER/docs` | Technical researcher page; can also create sessions (same login). Not needed if you use the dashboard |
 | `GAME-SERVER/api/admin/sessions` | List of all sessions (asks for the same login) |
@@ -83,7 +84,8 @@ game's settings file, so the instructions always match the game.
    The home page has a **Create a new session** form:
 
    - **Name**: something you will recognise, e.g. `pilot 12 Nov` (only you see it).
-   - **Conditions**: *No coordinator* (the coordinator condition is not available yet).
+   - **Conditions**: *No coordinator*, *Human coordinator*, or both. A coordinator group
+     needs 5 participants (4 islanders + 1 coordinator).
    - **Groups and seeds**: either let the dashboard pick random seeds (type how many groups
      you plan), or type your own seeds, e.g. `1, 2, 3`. The form tells you how many groups
      and participants this plans.
@@ -107,18 +109,33 @@ game's settings file, so the instructions always match the game.
 
 **How participants move through the study**
 
-1. They open the link and read the instructions (9 short pages, one with a "try it" example).
-2. They wait until 4 participants are there. The first four become group 1 (first seed),
-   the next four group 2, and so on. When all planned groups are full, later arrivals are
-   told that the session is full.
-3. They play. Each round has four steps — **Event, Talk, Decide, Results** — each with a
-   timer. A step ends early when everyone is done.
-4. They see their final coins and bonus.
+1. They open the link. The study places them right away into the next planned group that
+   still needs people, and gives them a role: **islander**, or in a coordinator group, by
+   lottery, **coordinator** (each newcomer has a 1 in 5 chance while all seats are open).
+2. They read the instructions for their condition and role (9 short pages, one with a "try
+   it" example). Coordinators read about their rules and their pay instead of the fishing
+   decision.
+3. They wait until their group is complete (4 islanders, plus the coordinator). Groups start
+   as soon as they are complete, so a no-coordinator group may start before a coordinator
+   group that is still missing its coordinator. When all planned groups have started, later
+   arrivals are told that the session is full.
+4. They play. Each round has four steps — **Event, Talk, Decide, Results** — and in
+   coordinator groups a **Policy** step after the Event, in which the coordinator sets the
+   rules. Each step has a timer and ends early when everyone is done.
+5. They see their final coins and bonus.
+
+**The coordinator's screen** shows the round's event, a form for the rules (fishing quota
+with audit chance and fine, tax, matching of infrastructure work, what happens to the tax
+pot, storm insurance, what islanders see about each other, and an announcement), charts of
+the group's wealth, inequality and fish stock, and a table of what each islander did in the
+last round. Coordinators never fish. Islanders are told truthfully that the coordinator is
+another participant.
 
 **Good to know**
 
 - If someone does not decide in time, their choice from the previous round is used again
-  (in round 1 a default split), and this is recorded as a timeout.
+  (in round 1 a default split), and this is recorded as a timeout. If the coordinator does
+  not confirm rules in time, the previous rules stay in force (also recorded).
 - A participant who closes the tab can reopen the same link and continue where the group is.
 - If the game server is restarted, games that are running at that moment end; their
   participants see a message to contact you. Do not restart the server during a session.
@@ -148,8 +165,9 @@ The number of rounds is shown to you on the dashboard only; participants never s
 
 ## What is recorded
 
-Every action is stored with a time stamp: when someone joins, how long they spent on the
-instructions, entering the waiting room, every decision (with response time and how often
+Every action is stored with a time stamp: when someone joins, which condition and role they
+were given, how long they spent on the instructions, entering the waiting room, every set of
+rules the coordinator confirmed (with response time and which rules changed), every decision (with response time and how often
 the sliders were moved), timeouts, the full outcome of every round (catch, income, savings,
 stock, infrastructure), the optional fairness ratings, and the final payments. Each group
 also records its condition, seed, the exact settings file and the program version used.
@@ -163,8 +181,8 @@ only.
 
 | Available now | Coming |
 | --- | --- |
-| No-coordinator condition, end to end | Coordinator condition and coordinator screen (milestones 4 and 6) |
-| Instructions with an interactive example | Chat, private messages and bribe offers (milestone 5); the Talk step shows a placeholder until then |
+| No-coordinator and human-coordinator conditions, end to end | Rule preview for the coordinator, coordinator dropout handling (milestone 6) |
+| Instructions for each condition and role, with an interactive example | Chat, private messages, bribe offers and favours (milestone 5); the Talk step shows a placeholder until then |
 | Waiting room and automatic group forming | Consent page, comprehension quiz, practice rounds, questionnaire, Prolific completion link (milestone 7) |
 | Timers, timeouts, results after each round, final payoff | Computer players replacing dropouts, dropout monitoring, data downloads (milestone 8) |
 | Dashboard: create sessions, study links, group progress | |

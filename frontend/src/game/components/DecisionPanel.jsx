@@ -96,7 +96,10 @@ export default function DecisionPanel({ snap, call }) {
     <Paper elevation={0} sx={{ p: 2, border: 1, borderColor: "divider" }}>
       <Typography variant="h6">How do you use your {E} effort points?</Typography>
       <Typography variant="body2" color="text.secondary">
-        Your choice is private. Points left: <b>{left}</b>
+        {snap.has_coordinator
+          ? "Other islanders do not see your choice while you decide; the coordinator sees it after the round."
+          : "Other islanders do not see your choice while you decide."}{" "}
+        Points left: <b>{left}</b>
       </Typography>
       <Stack spacing={1.5} sx={{ mt: 2 }}>
         {ROWS.map((r) => (

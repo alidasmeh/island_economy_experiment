@@ -14,13 +14,13 @@ import {
   TableRow,
   Typography,
 } from "@mui/material";
-import { coins, describeEvent, PHASE_TITLES } from "../format";
+import { coins, describeEvent, describeRedistribution, PHASE_TITLES } from "../format";
 
 const pct = (x, digits = 0) => `${(x * 100).toFixed(digits)}%`;
 
-const letters = (n) => {
+const letters = (n, conj = "or") => {
   const l = Array.from({ length: n }, (_, i) => `Islander ${String.fromCharCode(65 + i)}`);
-  return l.length > 1 ? `${l.slice(0, -1).join(", ")} or ${l[l.length - 1]}` : l[0];
+  return l.length > 1 ? `${l.slice(0, -1).join(", ")} ${conj} ${l[l.length - 1]}` : l[0];
 };
 
 function P({ children }) {
@@ -31,12 +31,13 @@ function P({ children }) {
   );
 }
 
-function Welcome({ r }) {
+function Welcome({ r, condition }) {
   return (
     <>
       <P>
         In this study you play a game with <b>{r.n_players - 1} other participants</b>. Together you are{" "}
         {r.n_players} islanders who live from the same sea.
+        {condition === "human" && " Your group also has a coordinator: one more participant, who sets rules for the islanders."}
       </P>
       <P>
         The game lasts several rounds. You will not know in advance exactly how many, so every round could be followed
@@ -58,12 +59,19 @@ function Welcome({ r }) {
   );
 }
 
-function Rounds({ r }) {
+function Rounds({ r, condition, role }) {
+  const coord = role === "coordinator";
   const rows = [
-    ["event", "You see what happens at sea this round (for example a storm)."],
-    ["communication", "You can communicate with your group."],
-    ["decision", "You privately decide how to use your effort this round."],
-    ["resolution", "You see what happened: your income, the group's catch and the fish left in the sea."],
+    ["event", coord ? "Everyone sees what happens at sea this round (for example a storm)."
+      : "You see what happens at sea this round (for example a storm)."],
+    ...(condition === "human"
+      ? [["policy", coord ? "You set the rules for this round." : "The coordinator sets the rules for this round."]]
+      : []),
+    ["communication", coord ? "The islanders can communicate." : "You can communicate with your group."],
+    ["decision", coord ? "Each islander privately decides how to use their effort this round."
+      : "You privately decide how to use your effort this round."],
+    ["resolution", coord ? "You see what happened: what each islander did, the group's catch and the fish left."
+      : "You see what happened: your income, the group's catch and the fish left in the sea."],
   ];
   return (
     <>
@@ -88,7 +96,7 @@ function Rounds({ r }) {
   );
 }
 
-function Effort({ r }) {
+function Effort({ r, condition }) {
   const perPointStart = r.catchability * r.stock_initial * r.infra_initial * r.price;
   const infraPct = r.infra_gain_per_point / r.infra_initial;
   return (
@@ -123,7 +131,10 @@ function Effort({ r }) {
         You can also <b>send coins</b> to another islander when you decide.
       </P>
       <P>
-        Your decision is private. If you do not decide in time, your choice from the previous round is used again (in
+        {condition === "human"
+          ? "The other islanders do not see your decision while you decide. After each round the coordinator sees what every islander did; whether the islanders see it too is one of the coordinator's rules. "
+          : "Your decision is private while you decide. After each round everyone sees what each islander did. "}
+        If you do not decide in time, your choice from the previous round is used again (in
         the first round: fish {r.timeout_default_allocation.harvest}, build {r.timeout_default_allocation.contribute},
         save {r.timeout_default_allocation.save}).
       </P>
@@ -169,7 +180,7 @@ function Sea({ r }) {
   );
 }
 
-function Differences({ r }) {
+function Differences({ r, role }) {
   return (
     <>
       <P>Islanders do not all start the same:</P>
@@ -186,7 +197,12 @@ function Differences({ r }) {
           </Typography>
         </li>
       </Box>
-      <P>These differences are decided by chance before the game starts. You will see your own coins in the game.</P>
+      <P>
+        These differences are decided by chance before the game starts.{" "}
+        {role === "coordinator"
+          ? "You will see every islander's coins and savings after each round."
+          : "You will see your own coins in the game."}
+      </P>
     </>
   );
 }
@@ -215,10 +231,59 @@ function Events({ r, condition }) {
   );
 }
 
-function Rules({ condition }) {
+function LeverList({ r }) {
+  const L = r.levers;
+  return (
+    <Box component="ul" sx={{ pl: 2.5, mt: 0, mb: 1.5 }}>
+      <li>
+        <Typography sx={{ mb: 1 }}>
+          <b>A fishing quota</b> (up to {L.quota.max} fish per islander per round). Whoever catches more may be
+          audited (chance up to {pct(L.audit_prob.max)}) and then pays a fine of up to {L.fine.max} coins for every
+          fish over the quota.
+        </Typography>
+      </li>
+      <li>
+        <Typography sx={{ mb: 1 }}>
+          <b>A tax</b> on fishing income (up to {pct(L.tax_rate.max)}), paid into a common pot. The pot can add up to{" "}
+          {pct(L.match_rate.max)} on top of every point put into infrastructure. The rest of the pot is either{" "}
+          {r.redistribution_options.map(describeRedistribution).join(", or ")}.
+        </Typography>
+      </li>
+      <li>
+        <Typography sx={{ mb: 1 }}>
+          <b>Storm insurance:</b> every islander pays {coins(r.insurance_premium)} coins per round into a pool, which is
+          shared equally in a storm round.
+        </Typography>
+      </li>
+      <li>
+        <Typography sx={{ mb: 1 }}>
+          <b>What islanders see</b> after each round: what each islander did, or only the group totals.
+        </Typography>
+      </li>
+    </Box>
+  );
+}
+
+function Rules({ r, condition }) {
   if (condition === "human") {
-    // Milestone 4 adds the coordinator's instructions here.
-    return <P>Your group has a coordinator, who is another participant in this study.</P>;
+    return (
+      <>
+        <P>
+          Your group has a <b>coordinator</b>. The coordinator is <b>another participant</b> in this study, chosen at
+          random. The coordinator does not fish; at the start of every round they set the rules for all{" "}
+          {r.n_players} islanders. They can set:
+        </P>
+        <LeverList r={r} />
+        <P>
+          The coordinator can also write a short announcement. Rules that are not changed stay as they are. At the
+          start there are no rules at all.
+        </P>
+        <P>
+          The coordinator earns a bonus of <b>{pct(r.welfare_bonus_rate)} of the islanders' total result</b> at the end
+          of the game, so the coordinator earns more when the islanders together earn more.
+        </P>
+      </>
+    );
   }
   return (
     <>
@@ -227,6 +292,158 @@ function Rules({ condition }) {
         fishes, builds and saves is up to them.
       </P>
       <P>Your group can use the communication step of each round to talk about what to do.</P>
+    </>
+  );
+}
+
+function CoordWelcome({ r }) {
+  return (
+    <>
+      <P>
+        In this study you take part in a game with <b>{r.n_players} other participants</b>, the islanders, who live
+        from the same sea. You have been chosen at random to be their <b>coordinator</b>.
+      </P>
+      <P>
+        You do not fish yourself. At the start of every round you <b>set the rules</b> for the islanders. Everyone in
+        the group is a real person taking part right now; the islanders know that the coordinator is another
+        participant. Nobody learns who anyone is. The islanders are called {letters(r.n_players, "and")}.
+      </P>
+      <P>
+        The game lasts several rounds. Nobody knows in advance exactly how many, so every round could be followed by
+        another one.
+      </P>
+      <P>
+        You earn <b>coins</b>. At the end they become a bonus payment:{" "}
+        <b>
+          {r.coins_per_currency_unit} coins = 1 {r.currency}
+        </b>
+        , on top of the participation payment.
+      </P>
+    </>
+  );
+}
+
+function CoordIslanders({ r }) {
+  const perPointStart = r.catchability * r.stock_initial * r.infra_initial * r.price;
+  return (
+    <>
+      <P>
+        Every round each islander has <b>{r.effort_points} effort points</b> and privately splits them between:
+      </P>
+      <Box component="ul" sx={{ pl: 2.5, mt: 0, mb: 1.5 }}>
+        <li>
+          <Typography sx={{ mb: 1 }}>
+            <b>Fishing</b>: coins right away (about {coins(perPointStart)} coins per point at the start), but every fish
+            caught is gone from the shared sea.
+          </Typography>
+        </li>
+        <li>
+          <Typography sx={{ mb: 1 }}>
+            <b>Building infrastructure</b>: makes everyone's fishing more productive in later rounds.
+          </Typography>
+        </li>
+        <li>
+          <Typography sx={{ mb: 1 }}>
+            <b>Saving</b>: {coins(r.saving_return_per_point)} coins per point into private savings with{" "}
+            {pct(r.interest_rate)} interest per round.
+          </Typography>
+        </li>
+      </Box>
+      <P>
+        Islanders can also send coins to each other. After each round you see exactly what every islander did, their
+        catch, coins and savings.
+      </P>
+    </>
+  );
+}
+
+function CoordRole({ r }) {
+  return (
+    <>
+      <P>
+        At the start of every round you have up to {r.phase_seconds.policy} seconds to set the rules. You can set:
+      </P>
+      <LeverList r={r} />
+      <P>
+        You can also write an announcement of up to {r.announcement_max_chars} characters, for example to explain your
+        rules. Rules you do not change stay as they are. If you do not confirm in time, the current rules stay in force.
+        At the start there are no rules at all.
+      </P>
+      <P>
+        Your screen shows how the group is doing (its total wealth, how unequal it is, and the fish in the sea) and
+        what each islander did in the last round.
+      </P>
+    </>
+  );
+}
+
+function CoordTryIt({ r }) {
+  const n = r.n_players;
+  const incomes = Array.from({ length: n }, (_, i) => 4 + 2 * (n - 1 - i));
+  const [tax, setTax] = useState(Math.min(0.2, r.levers.tax_rate.max));
+  const [rule, setRule] = useState("equal");
+  const pot = incomes.reduce((a, b) => a + b, 0) * tax;
+  const share = incomes.map(() => (rule === "equal" ? pot / n : 0));
+  return (
+    <>
+      <P>
+        Try it out. Suppose the {n} islanders earn these coins from fishing this round. Nothing here counts; it is only
+        an example.
+      </P>
+      <Paper elevation={0} sx={{ p: 2, border: 1, borderColor: "divider" }}>
+        <Stack direction="row" justifyContent="space-between">
+          <Typography fontWeight={600}>Tax</Typography>
+          <Typography fontWeight={600}>{pct(tax)}</Typography>
+        </Stack>
+        <Slider value={tax} min={r.levers.tax_rate.min} max={r.levers.tax_rate.max}
+          step={r.levers.tax_rate.step || 0.05} onChange={(_e, v) => setTax(v)} aria-label="Tax" />
+        <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+          {["equal", "infrastructure"].filter((o) => r.redistribution_options.includes(o)).map((o) => (
+            <Button key={o} size="small" variant={rule === o ? "contained" : "outlined"} onClick={() => setRule(o)}>
+              {o === "equal" ? "Share equally" : "Invest in infrastructure"}
+            </Button>
+          ))}
+        </Stack>
+        <Table size="small">
+          <TableBody>
+            {incomes.map((y, i) => (
+              <TableRow key={i}>
+                <TableCell sx={{ pl: 0 }}>Islander {String.fromCharCode(65 + i)}</TableCell>
+                <TableCell align="right">{coins(y)} earned</TableCell>
+                <TableCell align="right">−{coins(y * tax)} tax</TableCell>
+                <TableCell align="right" sx={{ pr: 0 }}>
+                  {rule === "equal" ? `+${coins(share[i])} share` : ""}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <Typography variant="body2" sx={{ mt: 1 }}>
+          The pot holds <b>{coins(pot)} coins</b>.{" "}
+          {rule === "equal"
+            ? "Shared equally, islanders who fished less get back more than they paid."
+            : `Invested, it raises infrastructure by about ${coins(pot * r.infra_gain_per_pot_coin, 3)}, which helps everyone's fishing from next round on.`}
+        </Typography>
+      </Paper>
+      <P />
+    </>
+  );
+}
+
+function CoordPayment({ r }) {
+  const example = r.n_players * ((r.wealth_min + r.wealth_max) / 2) * 2;
+  return (
+    <>
+      <P>
+        Your bonus is <b>{pct(r.welfare_bonus_rate)} of the islanders' total result</b> (their coins plus savings at the
+        end of the game, all {r.n_players} together). For example, if the islanders end with {coins(example, 0)} coins in
+        total, you earn {coins(example * r.welfare_bonus_rate)} coins.
+      </P>
+      <P>
+        Please stay until the end and keep this tab open. The islanders depend on you: if you do not set rules, the old
+        rules simply stay in force.
+      </P>
+      <P>When you continue, you will wait until your group is complete. The game then starts automatically.</P>
     </>
   );
 }
@@ -295,21 +512,34 @@ function Payment({ r }) {
   );
 }
 
-export default function Instructions({ rules, condition = "none", onDone, doneLabel = "I'm ready" }) {
-  const pages = useMemo(
-    () => [
-      ["Welcome", Welcome],
-      ["How a round works", Rounds],
-      ["Your effort points", Effort],
+export default function Instructions({ rules, condition = "none", role = "player", onDone, doneLabel = "I'm ready" }) {
+  const pages = useMemo(() => {
+    const ctx = (C) => (props) => <C {...props} condition={condition} role={role} />;
+    if (role === "coordinator") {
+      return [
+        ["Welcome, coordinator", CoordWelcome],
+        ["How a round works", ctx(Rounds)],
+        ["What the islanders do", CoordIslanders],
+        ["The sea", Sea],
+        ["Not everyone is the same", ctx(Differences)],
+        ["Events", ctx(Events)],
+        ["Your role: setting the rules", CoordRole],
+        ["Try it", CoordTryIt],
+        ["Your payment", CoordPayment],
+      ];
+    }
+    return [
+      ["Welcome", ctx(Welcome)],
+      ["How a round works", ctx(Rounds)],
+      ["Your effort points", ctx(Effort)],
       ["The sea", Sea],
-      ["Not everyone is the same", Differences],
-      ["Events", (props) => <Events {...props} condition={condition} />],
-      ["Who sets the rules?", () => <Rules condition={condition} />],
+      ["Not everyone is the same", ctx(Differences)],
+      ["Events", ctx(Events)],
+      ["Who sets the rules?", ctx(Rules)],
       ["Try it", TryIt],
       ["Your payment", Payment],
-    ],
-    [condition]
-  );
+    ];
+  }, [condition, role]);
   const [i, setI] = useState(0);
   const [title, Page] = pages[i];
   const last = i === pages.length - 1;

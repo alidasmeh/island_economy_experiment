@@ -223,3 +223,44 @@ interface clean. Parameter values live in `backend/config/default.yaml`.
 - The coordinator condition is shown but disabled until Milestone 4. The template's user-list
   pages (`FirstPage`, `ProjectPage`) are no longer routed.
 - Local dev profile `dashboard` runs on port 3011.
+
+## Milestone 4: human coordinator
+
+- **When roles are assigned.** The spec gives the coordinator "the same consent, instructions
+  and quiz, adapted to the coordinator role", so condition and role must be known *before* the
+  instructions. Participants are therefore **allocated** a condition and role on first connect
+  (stored on `ie_participants.condition` / `.role`, logged as `allocated`), not at group
+  formation. The new column is added automatically to existing databases at startup.
+- **Allocation rule.** Fill the earliest planned group that still has open seats; within it,
+  draw the slot (player / coordinator) at random with weights = open seats
+  (`random.SystemRandom`, independent of the group seed so matched draws are unaffected).
+  Coordinator selection is therefore random and not tied to arrival order. Only participants
+  who are connected or in the waiting room hold a seat, so people who leave during the
+  instructions free it. If every seat is held, newcomers overbook the earliest planned group.
+  An allocation is permanent for that participant.
+- **Group start.** A planned group starts as soon as the waiting room holds enough people
+  allocated to its condition (4 players, + 1 coordinator in `human`); groups may start out of
+  order. Participants whose condition has no planned group left are told the session is full.
+- **Policy step.** The coordinator submits once per round (all levers + announcement); the
+  submission ends the step and takes effect when it ends. Levers not sent keep their value. No
+  submission → previous policy stays, logged `policy {timeout: true}`. Every round logs a
+  `policy` event (final policy, changed levers, response time, client lever-change count);
+  `policy_submitted` logs the submission itself. Full lever-change logging with timestamps and
+  the live preview are Milestone 6.
+- **Favors** are part of the policy model but not of the M4 form; a policy submission keeps
+  existing favors. They are set from the bribe inbox in Milestone 5.
+- **Announcement** is stored as plain text (control characters removed, length validated
+  server-side) and rendered as text, never HTML.
+- **Coordinator interface.** The runtime builds the coordinator's view only with
+  `coordinator_observation()`. A human's dashboard input becomes a `CoordinatorAction`; a
+  non-human `CoordinatorBackend` (the scripted stub) can take the seat via `act(observation)`
+  — tested with a 20-round scripted-coordinator game.
+- **Ready steps** (Event, Talk, Results) end early only when the coordinator is also done.
+- **Coordinator pay** shown in instructions and on the final screen: welfare bonus =
+  `coordinator_pay.welfare_bonus_rate` × islanders' total final payoff. Islanders are told the
+  coordinator's pay rule too (no deception). Bribe income is added in Milestone 5.
+- **Truthful privacy wording.** The decision screen no longer says "your choice is private":
+  other islanders do not see it while deciding, and in the coordinator condition the
+  coordinator sees every choice after the round.
+- **Coordinator dropout** is not handled specially yet (policy simply times out and stays);
+  flagging is Milestone 6.

@@ -43,9 +43,14 @@ async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[f
         key = (s["round"], s["phase"])
         if s["done"] or key in acted:
             return
+        if s.get("role") == "coordinator" and s["phase"] == "decision":
+            return
         acted.add(key)
         await asyncio.sleep(random.uniform(*delay))
-        if s["phase"] == "decision":
+        if s["phase"] == "policy":
+            policy = {k: v for k, v in cfg.bot_stub_policy.items() if k != "favors"}
+            ack = await sio.call("submit_policy", {"round": s["round"], **policy})
+        elif s["phase"] == "decision":
             if strategy == "random":
                 e = cfg.effort_points
                 a, b = sorted(random.sample(range(e + 2), 2))
@@ -53,7 +58,7 @@ async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[f
             else:
                 split = dict(alloc)
             ack = await sio.call("submit_decision", {"round": s["round"], **split})
-        elif s["phase"] == "resolution":
+        elif s["phase"] == "resolution" and s.get("role") == "player":
             await sio.call("submit_rating", {"round": s["round"], "rating": random.randint(1, 7)})
             ack = await sio.call("ready", {"phase": "resolution"})
         else:

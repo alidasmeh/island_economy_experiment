@@ -46,3 +46,23 @@ async def init_db():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)
+
+
+# Columns added after a table was first created (create_all never alters existing tables).
+_ADDED_COLUMNS = {
+    "ie_participants": {"condition": "VARCHAR(20)"},
+}
+
+
+def _add_missing_columns(sync_conn) -> None:
+    from sqlalchemy import inspect, text
+
+    insp = inspect(sync_conn)
+    for table, cols in _ADDED_COLUMNS.items():
+        if not insp.has_table(table):
+            continue
+        have = {c["name"] for c in insp.get_columns(table)}
+        for name, ddl in cols.items():
+            if name not in have:
+                sync_conn.execute(text(f'ALTER TABLE {table} ADD COLUMN "{name}" {ddl}'))
