@@ -44,10 +44,12 @@ from app.engine import (
     validate_policy,
 )
 from app.engine.observation import coordinator_observation, group_summary, player_observation, public_policy
-from app.engine.types import RoundLedger
+from app.engine.types import BribeOffer, Favors, RoundLedger
 
 from app.coordinator.interface import CoordinatorAction, CoordinatorBackend
 
+from .communication import COORDINATOR, Comms, FAVOR_KINDS, actor_of_seat
+from .errors import ActionError
 from .store import EventStore
 
 log = logging.getLogger(__name__)
@@ -61,10 +63,6 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 class Transport(Protocol):
     async def send(self, participant_id: str, event: str, payload: dict[str, Any]) -> None: ...
-
-
-class ActionError(Exception):
-    """A participant action that is not allowed right now (returned to the client, logged)."""
 
 
 def seat_label(seat: int) -> str:
@@ -111,6 +109,7 @@ class GroupRuntime:
         self.submissions: dict[int, tuple[Decision, dict[str, Any]]] = {}
         self.pending_action: tuple[CoordinatorAction, dict[str, Any]] | None = None
         self.ready: set[str] = set()                      # participant ids done with the current phase
+        self.comms = Comms(cfg, len(seats), has_coordinator=condition == "human")
         self.ratings: dict[tuple[int, int], int] = {}
         self.settlement = None
         self.status = "running"
@@ -132,6 +131,16 @@ class GroupRuntime:
 
     def is_coordinator(self, participant_id: str) -> bool:
         return self.coordinator is not None and participant_id == self.coordinator
+
+    def actor_of(self, participant_id: str) -> str:
+        if self.is_coordinator(participant_id):
+            return COORDINATOR
+        return actor_of_seat(self.seat_of(participant_id))
+
+    def participant_of(self, actor: str | None) -> str | None:
+        if actor is None:
+            return None
+        return self.coordinator if actor == COORDINATOR else self.seats[int(actor[1:])]
 
     async def _log(self, kind: str, payload: dict[str, Any] | None = None, *, participant_id: str | None = None,
                    round: int | None = None) -> None:
@@ -181,6 +190,8 @@ class GroupRuntime:
                     await self._run_phase(phase, t)
                     if phase == "policy":
                         await self._apply_policy()
+                    elif phase == "communication":
+                        await self._close_offers(t)
             await self._finish()
         except asyncio.CancelledError:
             self.status = "aborted"
@@ -238,6 +249,20 @@ class GroupRuntime:
                                    "changed": [k for k in after if after[k] != before[k]], **meta},
                         participant_id=self.coordinator)
 
+    async def _close_offers(self, t: int) -> None:
+        """End of communication: a scripted coordinator answers its inbox; unanswered offers are refused."""
+        if self.coordinator_backend is not None:
+            action = self.coordinator_backend.act(self.coordinator_view())
+            for offer_id, resp in action.bribe_responses.items():
+                try:
+                    await self._respond(None, {"offer_id": offer_id, "accept": resp.accept, "reply": resp.reply})
+                except ActionError as exc:
+                    await self._log("action_rejected", {"action": "respond_bribe", "error": str(exc),
+                                                        "offer_id": offer_id, "backend": True})
+        for o in self.comms.expire_pending(t, self.clock()):
+            await self._log("bribe_expired", {"offer_id": o["id"], "sender_seat": o["from"], "amount": o["amount"]},
+                            participant_id=self.seats[o["from"]])
+
     async def _resolve(self, t: int) -> None:
         decisions = []
         for seat in range(len(self.seats)):
@@ -248,10 +273,21 @@ class GroupRuntime:
                 decisions.append(d)
                 await self._log("decision", {**self._decision_payload(seat, d), "timeout": True},
                                 participant_id=self.seats[seat])
+        offers = self.comms.round_offers(t)
+        bribes = [BribeOffer(offer_id=o["id"], sender=o["from"], amount=o["amount"],
+                             accepted=o["status"] == "accepted") for o in offers]
         new_state, ledger = resolve_round(self.state, decisions, self.policy, self.current_event,
-                                          round_rng(self.seed, t), cfg=self.cfg, bribes=())
+                                          round_rng(self.seed, t), cfg=self.cfg, bribes=bribes)
         self.state = new_state
         self.ledgers.append(ledger)
+        for rec in ledger.bribes:
+            o = self.comms.offers[rec.offer_id]
+            o["settled"] = {"executed": rec.executed, "paid": rec.paid, "detected": rec.detected,
+                            "reason": rec.rejected_reason, "coordinator_income": rec.coordinator_income}
+            await self._log("bribe_settled", {"offer_id": rec.offer_id, "sender_seat": rec.sender,
+                                              "amount": rec.amount, "accepted": rec.accepted, **o["settled"],
+                                              "favor": o["favor"]},
+                            participant_id=self.seats[rec.sender])
         await self._log("round_resolved", {"policy": self.policy.to_dict(), "ledger": ledger.to_dict()})
         await self._log("state", {"state": new_state.to_dict(), "gini": ledger.group.gini,
                                   "welfare": ledger.group.welfare})
@@ -290,7 +326,7 @@ class GroupRuntime:
                          transfer_to=_int(to) if to not in (None, "") and amount > 0 else None,
                          transfer_amount=amount)
             validate_decision(d, self.cfg, seat=seat, n_players=len(self.seats),
-                              available_wealth=self.state.wealth[seat])
+                              available_wealth=self.state.wealth[seat] - self.comms.escrow(seat, self.round))
         except (ActionError, ValidationError, TypeError, ValueError) as exc:
             await self._log("action_rejected", {"action": "submit_decision", "error": str(exc), "data": data},
                             participant_id=participant_id)
@@ -311,13 +347,14 @@ class GroupRuntime:
     def coordinator_view(self):
         """The coordinator's observation (the one function both human and scripted coordinators get)."""
         return coordinator_observation(self.state, self.policy, self.cfg, ledgers=self.ledgers,
-                                       event=self.current_event)
+                                       event=self.current_event, inbox=self.comms.coordinator_inbox(),
+                                       public_chat=self.comms.public_chat())
 
     async def submit_policy(self, participant_id: str, data: dict[str, Any]) -> dict[str, Any]:
         """Coordinator dashboard input -> validated CoordinatorAction, applied when the phase ends.
 
-        Levers not included keep their current value. Favors are kept as they are (they are
-        set from the inbox in Milestone 5).
+        Levers not included keep their current value, and so do favors unless ``favors`` is
+        sent (a full map seat -> {quota_exempt, audit_immune, double_redistribution_weight}).
         """
         if participant_id not in self.members():
             raise ActionError("not a member of this group")
@@ -333,7 +370,7 @@ class GroupRuntime:
                 raise ActionError("rules already submitted for this round")
             if now > self.deadline + self.cfg.phase_grace_seconds:
                 raise ActionError("the policy phase is over")
-            policy = _parse_policy(data, self.policy)
+            policy = _parse_policy(data, self.policy, n_players=len(self.seats))
             validate_policy(policy, self.cfg, n_players=len(self.seats))
         except (ActionError, ValidationError, TypeError, ValueError) as exc:
             await self._log("action_rejected", {"action": "submit_policy", "error": str(exc), "data": data},
@@ -348,6 +385,64 @@ class GroupRuntime:
             self._advance.set()
         await self.broadcast()
         return {"ok": True}
+
+    async def _comm_action(self, participant_id: str, action: str, data: Any, fn) -> dict[str, Any]:
+        if participant_id not in self.members():
+            raise ActionError("not a member of this group")
+        try:
+            if not isinstance(data, dict):
+                raise ActionError("invalid request")
+            if self.phase != "communication":
+                raise ActionError("this is only possible in the communication step")
+            result = await fn()
+        except ActionError as exc:
+            await self._log("action_rejected", {"action": action, "error": str(exc),
+                                                "data": data if isinstance(data, dict) else None},
+                            participant_id=participant_id)
+            raise
+        await self.broadcast()
+        return {"ok": True, **(result or {})}
+
+    async def send_message(self, participant_id: str, data: Any) -> dict[str, Any]:
+        async def go():
+            msg = self.comms.add_message(self.actor_of(participant_id), data, self.round, self.clock())
+            await self._log("message", {**msg, "from_participant": participant_id,
+                                        "to_participant": self.participant_of(msg["to"])},
+                            participant_id=participant_id)
+            return {"id": msg["id"]}
+        return await self._comm_action(participant_id, "send_message", data, go)
+
+    async def offer_bribe(self, participant_id: str, data: Any) -> dict[str, Any]:
+        async def go():
+            if self.is_coordinator(participant_id):
+                raise ActionError("only islanders can make offers")
+            seat = self.seat_of(participant_id)
+            o = self.comms.add_offer(seat, data, self.round, self.clock(), self.state.wealth[seat])
+            await self._log("bribe_offered", {"offer_id": o["id"], "sender_seat": seat, "amount": o["amount"],
+                                              "note": o["note"], "escrow_after": self.comms.escrow(seat, self.round)},
+                            participant_id=participant_id)
+            return {"offer_id": o["id"]}
+        return await self._comm_action(participant_id, "offer_bribe", data, go)
+
+    async def respond_bribe(self, participant_id: str, data: Any) -> dict[str, Any]:
+        async def go():
+            if not self.is_coordinator(participant_id):
+                raise ActionError("only the coordinator can answer offers")
+            await self._respond(participant_id, data)
+        return await self._comm_action(participant_id, "respond_bribe", data, go)
+
+    async def _respond(self, participant_id: str | None, data: dict[str, Any]) -> None:
+        o = self.comms.respond(data, self.round, self.clock(), self.state.coordinator.bribe_income)
+        await self._log("bribe_response", {"offer_id": o["id"], "sender_seat": o["from"], "amount": o["amount"],
+                                           "accepted": o["status"] == "accepted", "reply": o["reply"],
+                                           "favor": o["favor"]}, participant_id=self.coordinator)
+        if o["favor"]:
+            seat = o["from"]
+            current = self.policy.favors_for(seat)
+            self.policy.favors[seat] = Favors(**{**current.__dict__, o["favor"]: True})
+            await self._log("favor_granted", {"seat": seat, "favor": o["favor"], "offer_id": o["id"],
+                                              "favors": self.policy.favors[seat].__dict__},
+                            participant_id=self.coordinator)
 
     async def mark_ready(self, participant_id: str, phase: str) -> dict[str, Any]:
         if participant_id not in self.members():
@@ -411,6 +506,12 @@ class GroupRuntime:
             "n_members": len(self.members()),            # players + coordinator (who must be ready)
             "policy": public_policy(self.policy),
             "currency": self.cfg.currency,
+            "limits": {"message_max_chars": self.cfg.message_max_chars,
+                       "note_max_chars": self.cfg.bribe_note_max_chars,
+                       "bribe_min_amount": self.cfg.bribe_min_amount,
+                       "bribe_max_offers_per_round": self.cfg.bribe_max_offers_per_round,
+                       "bribe_detection_prob": self.cfg.bribe_detection_prob,
+                       "bribe_fine": self.cfg.bribe_fine},
         }
 
     def coordinator_snapshot(self) -> dict[str, Any]:
@@ -421,11 +522,16 @@ class GroupRuntime:
         snap = {
             **self._common_snapshot(),
             "role": "coordinator",
+            "actor": COORDINATOR,
             "seat": None,
             "label": COORDINATOR_LABEL,
             "done": (pending is not None) if self.phase == "policy" else (self.coordinator in self.ready),
             "observation": obs,
             "full_policy": self.policy.to_dict(),
+            "messages": self.comms.visible_messages(COORDINATOR),
+            "bribe_income_committed": self.comms.committed_income(self.round, self.state.coordinator.bribe_income),
+            "bribe_income_cap": self.cfg.bribe_income_cap,
+            "bribe_income_rate": self.cfg.bribe_income_rate,
             "submitted_policy": pending,
             "last_round_group": group_summary(last) if last else None,
             "final": None,
@@ -453,10 +559,14 @@ class GroupRuntime:
         snap: dict[str, Any] = {
             **self._common_snapshot(),
             "role": "player",
+            "actor": actor_of_seat(seat),
             "seat": seat,
             "label": seat_label(seat),
             "done": (seat in self.submissions) if self.phase == "decision" else (self.seats[seat] in self.ready),
             "observation": obs,
+            "messages": self.comms.visible_messages(actor_of_seat(seat)),
+            "my_offers": self.comms.offers_from(seat),
+            "escrow": self.comms.escrow(seat, self.round),
             "preview": {
                 "catchability": self.cfg.catchability, "price": self.cfg.price,
                 "harvest_mult": ev.harvest_mult if ev else 1.0, "price_mult": ev.price_mult if ev else 1.0,
@@ -499,9 +609,23 @@ class GroupRuntime:
         return out
 
 
-def _parse_policy(data: dict[str, Any], current: Policy) -> Policy:
-    """Dashboard input -> Policy. Missing levers keep their current value; favors are kept."""
+def _parse_policy(data: dict[str, Any], current: Policy, *, n_players: int) -> Policy:
+    """Dashboard input -> Policy. Missing levers keep their current value; so do favors unless sent."""
     d = current.to_dict()
+    if data.get("favors") is not None:
+        fav = data["favors"]
+        if not isinstance(fav, dict):
+            raise ValueError("favors must be a mapping")
+        parsed = {}
+        for k, v in fav.items():
+            seat = _int(k)
+            if not 0 <= seat < n_players:
+                raise ValueError("favor for unknown islander")
+            if not isinstance(v, dict) or set(v) - set(FAVOR_KINDS) or not all(isinstance(x, bool) for x in v.values()):
+                raise ValueError("invalid favors")
+            if any(v.values()):
+                parsed[str(seat)] = {k2: bool(v.get(k2, False)) for k2 in FAVOR_KINDS}
+        d["favors"] = parsed
     for k in POLICY_LEVERS:
         if k not in data or data[k] is None:
             continue

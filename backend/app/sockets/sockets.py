@@ -9,6 +9,9 @@ Client -> server events (all acknowledged with {"ok": bool, "error"?: str}):
     enter_waiting_room      {instructions_seconds?}
     submit_policy           {round, quota, tax_rate, redistribution, match_rate, fine, audit_prob, insurance,
                              info_policy, announcement}            (coordinator, policy phase)
+    send_message            {channel: public|direct, to?: p0..p3|coordinator, text}   (communication step)
+    offer_bribe             {amount, note?}                      (islander, human condition)
+    respond_bribe           {offer_id, accept, reply?, favor?}   (coordinator)
     submit_decision         {round, harvest, contribute, save, transfer_to?, transfer_amount?,
                              client_response_ms?, slider_changes?}
     ready                   {phase}
@@ -105,6 +108,21 @@ async def enter_waiting_room(sid, data=None):
 @sio.on("submit_policy")
 async def submit_policy(sid, data=None):
     return await _call(sid, lambda pid, _s: _runtime(pid).submit_policy(pid, data if isinstance(data, dict) else {}))
+
+
+@sio.on("send_message")
+async def send_message(sid, data=None):
+    return await _call(sid, lambda pid, _s: _runtime(pid).send_message(pid, data))
+
+
+@sio.on("offer_bribe")
+async def offer_bribe(sid, data=None):
+    return await _call(sid, lambda pid, _s: _runtime(pid).offer_bribe(pid, data))
+
+
+@sio.on("respond_bribe")
+async def respond_bribe(sid, data=None):
+    return await _call(sid, lambda pid, _s: _runtime(pid).respond_bribe(pid, data))
 
 
 @sio.on("submit_decision")

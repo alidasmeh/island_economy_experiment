@@ -124,11 +124,22 @@ game's settings file, so the instructions always match the game.
    rules. Each step has a timer and ends early when everyone is done.
 5. They see their final coins and bonus.
 
+**The Talk step.** Everyone can write in a group chat and send private messages to any
+other member (only the recipient sees a private message). In coordinator groups an islander
+can also make the coordinator a private **offer** of coins with a note. The coins are held
+until the coordinator accepts or refuses; unanswered offers are refused at the end of the
+step. An accepted offer is paid at the end of the round; the coordinator earns a share of it
+(capped per game) and may grant **special treatment** in return (no quota, never audited, or a
+double share of the pot), which only that islander is told about. Each accepted offer can be
+discovered by chance, and then both sides pay a fine. Participants are told all of this in
+the instructions, and that messages are recorded for the research.
+
 **The coordinator's screen** shows the round's event, a form for the rules (fishing quota
 with audit chance and fine, tax, matching of infrastructure work, what happens to the tax
 pot, storm insurance, what islanders see about each other, and an announcement), charts of
-the group's wealth, inequality and fish stock, and a table of what each islander did in the
-last round. Coordinators never fish. Islanders are told truthfully that the coordinator is
+the group's wealth, inequality and fish stock, a table of what each islander did in the
+last round, and in the Talk step an inbox with **Accept** and **Refuse** buttons, the group
+chat and private messages. Special treatment can also be given or removed in the rule form. Coordinators never fish. Islanders are told truthfully that the coordinator is
 another participant.
 
 **Good to know**
@@ -167,7 +178,9 @@ The number of rounds is shown to you on the dashboard only; participants never s
 
 Every action is stored with a time stamp: when someone joins, which condition and role they
 were given, how long they spent on the instructions, entering the waiting room, every set of
-rules the coordinator confirmed (with response time and which rules changed), every decision (with response time and how often
+rules the coordinator confirmed (with response time and which rules changed), every chat and
+private message, every offer with its answer, any special treatment granted, whether it was
+paid and whether it was discovered, every decision (with response time and how often
 the sliders were moved), timeouts, the full outcome of every round (catch, income, savings,
 stock, infrastructure), the optional fairness ratings, and the final payments. Each group
 also records its condition, seed, the exact settings file and the program version used.
@@ -182,7 +195,8 @@ only.
 | Available now | Coming |
 | --- | --- |
 | No-coordinator and human-coordinator conditions, end to end | Rule preview for the coordinator, coordinator dropout handling (milestone 6) |
-| Instructions for each condition and role, with an interactive example | Chat, private messages, bribe offers and favours (milestone 5); the Talk step shows a placeholder until then |
+| Instructions for each condition and role, with an interactive example | |
+| Chat, private messages, offers to the coordinator and special treatment | |
 | Waiting room and automatic group forming | Consent page, comprehension quiz, practice rounds, questionnaire, Prolific completion link (milestone 7) |
 | Timers, timeouts, results after each round, final payoff | Computer players replacing dropouts, dropout monitoring, data downloads (milestone 8) |
 | Dashboard: create sessions, study links, group progress | |

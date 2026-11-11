@@ -15,6 +15,7 @@ import {
   Typography,
 } from "@mui/material";
 import { coins, describeEvent, signed } from "../format";
+import { PlayerChat } from "./Chat";
 
 export function ReadyButton({ snap, call, label = "Continue" }) {
   const [error, setError] = useState("");
@@ -67,8 +68,8 @@ export function CommunicationPanel({ snap, call }) {
   return (
     <Paper elevation={0} sx={{ p: 2, border: 1, borderColor: "divider" }}>
       <Typography variant="h6" gutterBottom>Talk to your group</Typography>
-      <Alert severity="info">Chat is not available in this version of the game yet.</Alert>
-      <ReadyButton snap={snap} call={call} label="Continue to the decision" />
+      <PlayerChat snap={snap} call={call} />
+      <ReadyButton snap={snap} call={call} label="I'm done talking" />
     </Paper>
   );
 }
@@ -141,6 +142,7 @@ export function ResultsPanel({ snap, call }) {
         {own.tax > 0 && <Line label="Tax" value={signed(-own.tax)} />}
         {own.redistribution > 0 && <Line label="Share of the tax pot" value={signed(own.redistribution)} />}
         {own.fines_paid > 0 && <Line label="Fines" value={signed(-own.fines_paid)} />}
+        {own.bribes_paid > 0 && <Line label="Paid to the coordinator (your offer)" value={signed(-own.bribes_paid)} />}
         {own.premium > 0 && <Line label="Insurance premium" value={signed(-own.premium)} />}
         {own.insurance_payout > 0 && <Line label="Insurance payout" value={signed(own.insurance_payout)} />}
         {own.transfer_out > 0 && <Line label="Coins you sent" value={signed(-own.transfer_out)} />}

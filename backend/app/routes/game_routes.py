@@ -143,4 +143,12 @@ async def rules() -> dict[str, Any]:
         "insurance_premium": cfg.insurance_premium,
         "infra_gain_per_pot_coin": cfg.infra_gain_per_pot_coin,
         "welfare_bonus_rate": cfg.welfare_bonus_rate,
+        # Communication and bribery
+        "message_max_chars": cfg.message_max_chars,
+        "bribe_min_amount": cfg.bribe_min_amount,
+        "bribe_max_offers": cfg.bribe_max_offers_per_round,          # per islander per round
+        "bribe_detection_prob": cfg.bribe_detection_prob,
+        "bribe_fine": cfg.bribe_fine,
+        "bribe_income_rate": cfg.bribe_income_rate,
+        "bribe_income_cap": cfg.bribe_income_cap,
     }

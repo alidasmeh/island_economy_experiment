@@ -67,7 +67,11 @@ function Rounds({ r, condition, role }) {
     ...(condition === "human"
       ? [["policy", coord ? "You set the rules for this round." : "The coordinator sets the rules for this round."]]
       : []),
-    ["communication", coord ? "The islanders can communicate." : "You can communicate with your group."],
+    ["communication", coord
+      ? "Everyone can chat: in the group chat or in private messages. Islanders can also make you offers (see below)."
+      : condition === "human"
+        ? "You can chat with the group, send private messages, or make a private offer to the coordinator."
+        : "You can chat with the whole group or send private messages."],
     ["decision", coord ? "Each islander privately decides how to use their effort this round."
       : "You privately decide how to use your effort this round."],
     ["resolution", coord ? "You see what happened: what each islander did, the group's catch and the fish left."
@@ -92,6 +96,10 @@ function Rounds({ r, condition, role }) {
         </TableBody>
       </Table>
       <P>A step ends early when everyone in the group is done, so you will often wait less.</P>
+      <P>
+        Private messages are seen only by the person you send them to. For the research, all messages are recorded;
+        they are never shown to anyone outside the study.
+      </P>
     </>
   );
 }
@@ -264,6 +272,35 @@ function LeverList({ r }) {
   );
 }
 
+// Offers to the coordinator (coordinator condition). Shown to islanders and the coordinator alike.
+function Offers({ r, role }) {
+  const coord = role === "coordinator";
+  return (
+    <>
+      <Typography variant="subtitle1" fontWeight={700} sx={{ mt: 1 }}>
+        Private offers to the coordinator
+      </Typography>
+      <P>
+        During the communication step, {coord ? "an islander" : "you"} can privately offer the coordinator coins (at
+        least {r.bribe_min_amount}), with a short note. Only the coordinator sees the offer. The coordinator can accept
+        or refuse it; an offer that is not answered in that step counts as refused, and the coins stay with the
+        islander.
+      </P>
+      <P>
+        If the coordinator accepts, the islander pays the coins at the end of the round and the coordinator earns{" "}
+        {pct(r.bribe_income_rate)} of them (at most {r.bribe_income_cap} coins in the whole game). With an accepted
+        offer the coordinator can also give that islander <b>special treatment</b>: not bound by the quota, never
+        audited, or a double share of the pot. Only that islander is told; the other islanders are not. The coordinator
+        can also give or remove special treatment when setting the rules.
+      </P>
+      <P>
+        Each accepted offer is discovered with a chance of {pct(r.bribe_detection_prob)}. Then the islander and the
+        coordinator each pay a fine of {r.bribe_fine} coins.
+      </P>
+    </>
+  );
+}
+
 function Rules({ r, condition }) {
   if (condition === "human") {
     return (
@@ -282,6 +319,7 @@ function Rules({ r, condition }) {
           The coordinator earns a bonus of <b>{pct(r.welfare_bonus_rate)} of the islanders' total result</b> at the end
           of the game, so the coordinator earns more when the islanders together earn more.
         </P>
+        <Offers r={r} role="player" />
       </>
     );
   }
@@ -367,8 +405,10 @@ function CoordRole({ r }) {
       <P>
         You can also write an announcement of up to {r.announcement_max_chars} characters, for example to explain your
         rules. Rules you do not change stay as they are. If you do not confirm in time, the current rules stay in force.
-        At the start there are no rules at all.
+        At the start there are no rules at all. You can also give single islanders special treatment (see the next
+        below); only that islander is told.
       </P>
+      <Offers r={r} role="coordinator" />
       <P>
         Your screen shows how the group is doing (its total wealth, how unequal it is, and the fish in the sea) and
         what each islander did in the last round.
@@ -438,6 +478,10 @@ function CoordPayment({ r }) {
         Your bonus is <b>{pct(r.welfare_bonus_rate)} of the islanders' total result</b> (their coins plus savings at the
         end of the game, all {r.n_players} together). For example, if the islanders end with {coins(example, 0)} coins in
         total, you earn {coins(example * r.welfare_bonus_rate)} coins.
+      </P>
+      <P>
+        On top of that you earn {pct(r.bribe_income_rate)} of every offer you accept (at most {r.bribe_income_cap} coins
+        in the whole game), minus {r.bribe_fine} coins for every accepted offer that is discovered.
       </P>
       <P>
         Please stay until the end and keep this tab open. The islanders depend on you: if you do not set rules, the old

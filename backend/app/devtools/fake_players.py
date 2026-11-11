@@ -22,7 +22,8 @@ from app.bots import STRATEGIES
 from app.engine import load_config
 
 
-async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[float, float]) -> None:
+async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[float, float],
+                      chatty: bool = False) -> None:
     cfg = load_config()
     alloc = cfg.bot_allocations.get(strategy) or cfg.bot_allocations["conditional_first_round"]
     async with httpx.AsyncClient(base_url=url) as http:
@@ -32,6 +33,7 @@ async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[f
     sio = socketio.AsyncClient()
     done = asyncio.Event()
     acted: set[tuple[int, str]] = set()
+    answered: set[str] = set()
 
     @sio.on("state")
     async def on_state(s):
@@ -40,6 +42,16 @@ async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[f
         if s["phase"] == "finished" or s.get("status") == "aborted":
             done.set()
             return
+        if s.get("role") == "coordinator" and s["phase"] == "communication":
+            # Answer every new offer (offers can arrive after this fake coordinator is already done).
+            for m in s["observation"]["inbox"]:
+                if m["type"] == "bribe" and m["status"] == "pending" and m["round"] == s["round"] \
+                        and m["offer_id"] not in answered:
+                    answered.add(m["offer_id"])
+                    yes = random.random() < 0.5
+                    await sio.call("respond_bribe", {"offer_id": m["offer_id"], "accept": yes,
+                                                     "reply": "OK" if yes else "No, thanks",
+                                                     "favor": "quota_exempt" if yes else None})
         key = (s["round"], s["phase"])
         if s["done"] or key in acted:
             return
@@ -47,6 +59,15 @@ async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[f
             return
         acted.add(key)
         await asyncio.sleep(random.uniform(*delay))
+        if chatty and s["phase"] == "communication" and s.get("role") == "player":
+            await sio.call("send_message", {"channel": "public", "text": f"Round {s['round']}: hello from {s['label']}"})
+            if s.get("has_coordinator"):
+                await sio.call("send_message", {"channel": "direct", "to": "coordinator",
+                                                "text": f"{s['label']} here, privately."})
+                if s["round"] <= 2:
+                    await sio.call("offer_bribe", {"amount": 5 + i, "note": f"From {s['label']}: go easy on me"})
+        if s["phase"] == "policy" and s.get("role") != "coordinator":
+            return
         if s["phase"] == "policy":
             policy = {k: v for k, v in cfg.bot_stub_policy.items() if k != "favors"}
             ack = await sio.call("submit_policy", {"round": s["round"], **policy})
@@ -76,7 +97,8 @@ async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[f
 
 async def main_async(args: argparse.Namespace) -> None:
     strategies = (args.strategy * args.n)[: args.n]
-    await asyncio.gather(*(fake_player(i, args.url, args.session.upper(), s, (args.min_delay, args.max_delay))
+    await asyncio.gather(*(fake_player(i, args.url, args.session.upper(), s, (args.min_delay, args.max_delay),
+                                       args.chatty)
                            for i, s in enumerate(strategies)))
 
 
@@ -87,6 +109,8 @@ def main() -> None:
     ap.add_argument("--strategy", nargs="+", default=["conditional"], choices=STRATEGIES,
                     help="strategies, cycled over the fake players (conditional plays its first-round split)")
     ap.add_argument("--url", default="http://127.0.0.1:8000")
+    ap.add_argument("--chatty", action="store_true",
+                    help="islanders post a chat message and a DM each round, and offers in rounds 1-2")
     ap.add_argument("--min-delay", type=float, default=1.0)
     ap.add_argument("--max-delay", type=float, default=3.0)
     asyncio.run(main_async(ap.parse_args()))

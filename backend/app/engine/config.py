@@ -94,6 +94,15 @@ class Config:
     # bribery
     bribe_detection_prob: float
     bribe_fine: float
+    bribe_min_amount: float
+    bribe_note_max_chars: int
+    bribe_max_offers_per_round: int
+    # communication
+    message_max_chars: int
+    rate_limit_messages: int
+    rate_limit_window_seconds: float
+    max_messages_per_round: int
+    snapshot_max_messages: int
     # coordinator pay
     welfare_bonus_rate: float
     bribe_income_rate: float
@@ -204,6 +213,14 @@ def config_from_dict(raw: dict[str, Any], *, source_path: str = "", sha256: str 
         default_policy=dict(g("default_policy")),
         bribe_detection_prob=float(g("bribery.detection_prob")),
         bribe_fine=float(g("bribery.fine")),
+        bribe_min_amount=float(g("bribery.min_amount")),
+        bribe_note_max_chars=int(g("bribery.note_max_chars")),
+        bribe_max_offers_per_round=int(g("bribery.max_offers_per_round")),
+        message_max_chars=int(g("communication.message_max_chars")),
+        rate_limit_messages=int(g("communication.rate_limit_messages")),
+        rate_limit_window_seconds=float(g("communication.rate_limit_window_seconds")),
+        max_messages_per_round=int(g("communication.max_messages_per_round")),
+        snapshot_max_messages=int(g("communication.snapshot_max_messages")),
         welfare_bonus_rate=float(g("coordinator_pay.welfare_bonus_rate")),
         bribe_income_rate=float(g("coordinator_pay.bribe_income_rate")),
         bribe_income_cap=float(g("coordinator_pay.bribe_income_cap")),
@@ -269,6 +286,12 @@ def _validate(cfg: Config) -> None:
         errs.append("default_policy.info_policy not in info_policy_options")
     if cfg.time_scale <= 0 or any(v <= 0 for v in cfg.phase_seconds.values()):
         errs.append("phase seconds and time_scale must be > 0")
+    if cfg.bribe_min_amount <= 0 or cfg.bribe_max_offers_per_round < 0 or cfg.bribe_note_max_chars < 0:
+        errs.append("bribery.min_amount must be > 0; max_offers_per_round and note_max_chars >= 0")
+    if min(cfg.message_max_chars, cfg.rate_limit_messages, cfg.max_messages_per_round,
+           cfg.snapshot_max_messages) < 1 \
+            or cfg.rate_limit_window_seconds <= 0:
+        errs.append("communication limits must be positive")
     if cfg.coins_per_currency_unit <= 0:
         errs.append("coins_per_currency_unit must be > 0")
     if errs:

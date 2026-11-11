@@ -264,3 +264,41 @@ interface clean. Parameter values live in `backend/config/default.yaml`.
   coordinator sees every choice after the round.
 - **Coordinator dropout** is not handled specially yet (policy simply times out and stays);
   flagging is Milestone 6.
+
+## Milestone 5: communication and bribery
+
+- **When.** Chat, direct messages, offers and answers to offers are only possible in the
+  communication step (section 4). Offers still pending when the step ends are refused
+  automatically (`bribe_expired`) and the escrow is released.
+- **Direct messages** may go from any member to any other member, including coordinator →
+  islander (the spec lists player → player/coordinator; letting the coordinator reply
+  privately is the simplest symmetric choice). Only sender and recipient see them.
+- **Escrow** is a hold, not a transfer: during the round the islander's spendable wealth is
+  wealth − (pending + accepted offers of the round); transfers in the decision step are
+  validated against it. The money moves only in resolution step 10 (engine).
+- **Cap.** An offer can be accepted only if the coordinator's bribe income so far, plus
+  `bribe_income_rate` × offers already accepted this round, plus this offer's income stays
+  within `bribe_income_cap`. Refusing is always possible. The engine keeps its own cap check
+  as a second line of defence.
+- **Favors.** When accepting an offer the coordinator may grant one favor to that islander;
+  it takes effect immediately (this round's resolution) and stays until removed. Favors can
+  also be set or cleared in the rule form (full map per islander). Only the favoured islander
+  is told ("special treatment for you"); other islanders never receive it.
+- **Detection and fines** come from the engine (`bribery.detection_prob`, `bribery.fine`),
+  drawn from the round's seeded stream. The islander learns it on their offer card and in the
+  round's fines; the coordinator in the round summary.
+- **Limits** (config `communication.*`, `bribery.*`): message length, a sliding-window rate
+  limit shared by messages and offers, a per-round message cap, minimum offer, offers per
+  round, note length. Only the most recent `snapshot_max_messages` are sent to a screen; all
+  are logged.
+- **Sanitising.** Control characters are removed, runs of blank lines collapsed, length
+  checked server-side. Text is stored as typed and always rendered as text (React escapes it),
+  never as HTML.
+- **Logging.** `message` (channel, sender/recipient actors and participant ids, text),
+  `bribe_offered`, `bribe_response` (accepted, reply, favor), `favor_granted`, `bribe_expired`,
+  `bribe_settled` (executed, paid, detected, reason, coordinator income).
+- **Instructions** explain offers, the coordinator's share and cap, special treatment, the
+  detection chance and fines to islanders and coordinators alike, and say that messages are
+  recorded for the research.
+- **Scripted coordinator** answers offers at the end of the communication step via the same
+  `CoordinatorBackend.act` path (`bribe_responses`).

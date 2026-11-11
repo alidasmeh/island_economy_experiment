@@ -74,6 +74,18 @@ default_policy:
 bribery:
   detection_prob: 0.1          # p_detect per accepted bribe
   fine: 20                     # F_bribe paid by each side on detection
+  min_amount: 1                # smallest bribe offer (coins)
+  note_max_chars: 200          # optional note sent with an offer
+  max_offers_per_round: 3      # per islander
+
+# Chat and direct messages (section 8). Limits are enforced server-side; messages are
+# stored and shown as plain text only.
+communication:
+  message_max_chars: 300
+  rate_limit_messages: 5       # at most this many messages (public + direct + bribe offers) ...
+  rate_limit_window_seconds: 10  # ... per participant within this many seconds
+  max_messages_per_round: 40   # per participant
+  snapshot_max_messages: 150   # most recent messages sent to a participant's screen (all are logged)
 
 coordinator_pay:
   welfare_bonus_rate: 0.01     # coordinator bonus = rate * total final group payoff (coins)

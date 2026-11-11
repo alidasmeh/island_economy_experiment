@@ -6,6 +6,7 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   FormControl,
   FormControlLabel,
   InputLabel,
@@ -27,6 +28,7 @@ import {
 } from "@mui/material";
 import { coins, describeRedistribution } from "../format";
 import { EventPanel, ReadyButton } from "./PhasePanels";
+import { CoordinatorChat, FAVORS } from "./Chat";
 
 const pct = (x) => `${Math.round(x * 100)}%`;
 const INFO_LABELS = {
@@ -157,6 +159,18 @@ function Section({ title, children }) {
 
 // ---------------------------------------------------------------- rules form
 
+// Keep only islanders with at least one favor switched on (the server stores the full map).
+function normFavors(f) {
+  const out = {};
+  Object.keys(f || {}).sort().forEach((seat) => {
+    const v = f[seat] || {};
+    if (Object.values(v).some(Boolean)) {
+      out[seat] = Object.fromEntries(Object.keys(FAVORS).map((k) => [k, !!v[k]]));
+    }
+  });
+  return out;
+}
+
 function LeverSlider({ label, help, value, onChange, range, format, disabled }) {
   const step = range.step || (range.max - range.min <= 1 ? 0.01 : 1);
   return (
@@ -190,6 +204,16 @@ function PolicyForm({ snap, call }) {
   }, [snap.full_policy]);
   const [form, setForm] = useState(start);
   const [changes, setChanges] = useState(0);
+  const startFavors = useMemo(() => snap.full_policy.favors || {}, [snap.full_policy]);
+  const [favors, setFavors] = useState(startFavors);
+  const toggleFavor = (seat, kind) => {
+    setFavors((f) => {
+      const cur = { quota_exempt: false, audit_immune: false, double_redistribution_weight: false, ...(f[seat] || {}) };
+      return { ...f, [seat]: { ...cur, [kind]: !cur[kind] } };
+    });
+    setChanges((c) => c + 1);
+  };
+  const favorsChanged = JSON.stringify(normFavors(favors)) !== JSON.stringify(normFavors(startFavors));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const shownAt = useRef(Date.now());
@@ -198,7 +222,7 @@ function PolicyForm({ snap, call }) {
     setForm((f) => (f[k] === v ? f : { ...f, [k]: v }));
     setChanges((c) => c + 1);
   };
-  const changed = LEVERS.filter((k) => form[k] !== start[k]);
+  const changed = LEVERS.filter((k) => form[k] !== start[k]).concat(favorsChanged ? ["favors"] : []);
 
   if (snap.done && snap.submitted_policy) {
     return (
@@ -217,6 +241,7 @@ function PolicyForm({ snap, call }) {
       round: snap.round,
       ...form,
       announcement: form.announcement.trim(),
+      favors: normFavors(favors),
       lever_changes: changes,
       client_response_ms: Date.now() - shownAt.current,
     });
@@ -323,6 +348,36 @@ function PolicyForm({ snap, call }) {
         inputProps={{ maxLength: maxChars }}
       />
 
+      <Typography variant="subtitle2" sx={{ mt: 2.5 }}>Special treatment (optional)</Typography>
+      <Typography variant="caption" color="text.secondary" display="block">
+        Only the islander concerned is told; the others never see it. It stays until you remove it.
+      </Typography>
+      <Box sx={{ overflowX: "auto" }}>
+        <Table size="small" sx={{ "& td, & th": { px: 0.5 } }}>
+          <TableHead>
+            <TableRow>
+              <TableCell>Islander</TableCell>
+              {Object.values(FAVORS).map((v) => (
+                <TableCell key={v} align="center">{v}</TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {snap.labels.map((label, seat) => (
+              <TableRow key={seat}>
+                <TableCell>{label.replace("Islander ", "")}</TableCell>
+                {Object.keys(FAVORS).map((k) => (
+                  <TableCell key={k} align="center">
+                    <Checkbox size="small" checked={!!(favors[seat] && favors[seat][k])}
+                      onChange={() => toggleFavor(seat, k)} inputProps={{ "aria-label": `${label}: ${FAVORS[k]}` }} />
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
       <Button fullWidth variant="contained" size="large" sx={{ mt: 2 }} disabled={busy} onClick={submit}>
         {changed.length ? "Confirm these rules" : "Keep the current rules"}
@@ -341,6 +396,13 @@ function CurrentRules({ snap }) {
     ["Matching", p.tax_rate && p.match_rate ? pct(p.match_rate) : "none"],
     ["Insurance", p.insurance ? "on" : "off"],
     ["Information", INFO_LABELS[p.info_policy] || p.info_policy],
+    ["Special treatment", Object.entries(p.favors || {})
+      .map(([seat, f]) => {
+        const on = Object.keys(FAVORS).filter((k) => f[k]).map((k) => FAVORS[k]);
+        return on.length ? `${snap.labels[Number(seat)].replace("Islander ", "")}: ${on.join(", ")}` : null;
+      })
+      .filter(Boolean)
+      .join(" · ") || "none"],
   ];
   return (
     <Box component="dl" sx={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 2, rowGap: 0.25, m: 0 }}>
@@ -369,6 +431,20 @@ function RoundSummary({ snap, call }) {
           {g.pot_to_infrastructure > 0 ? `, ${coins(g.pot_to_infrastructure)} turned into infrastructure` : ""}.
         </Typography>
       )}
+      {(() => {
+        const paid = snap.observation.inbox.filter(
+          (m) => m.type === "bribe" && m.round === g.round && m.settled && m.settled.executed
+        );
+        if (!paid.length) return null;
+        const income = paid.reduce((t, m) => t + m.settled.coordinator_income, 0);
+        const found = paid.filter((m) => m.settled.detected).length;
+        return (
+          <Typography variant="body2" sx={{ mt: 0.5 }}>
+            {paid.length} accepted offer{paid.length === 1 ? " was" : "s were"} paid; you earned {coins(income)} coins.
+            {found ? ` ${found} ${found === 1 ? "was" : "were"} discovered: you were fined.` : ""}
+          </Typography>
+        );
+      })()}
       {g.audits_caught > 0 && (
         <Typography variant="body2" sx={{ mt: 0.5 }}>
           {g.audits_caught} islander{g.audits_caught === 1 ? " was" : "s were"} caught over the quota.
@@ -389,6 +465,18 @@ function CoordinatorFinal({ snap }) {
         <Typography component="dd" variant="body2" sx={{ m: 0, textAlign: "right" }}>{coins(f.group_payoff_coins)} coins</Typography>
         <Typography component="dt" variant="body2">Your share ({pct(f.welfare_bonus_rate)})</Typography>
         <Typography component="dd" variant="body2" sx={{ m: 0, textAlign: "right" }}>{coins(f.welfare_bonus)} coins</Typography>
+        {f.bribe_income > 0 && (
+          <>
+            <Typography component="dt" variant="body2">Income from accepted offers</Typography>
+            <Typography component="dd" variant="body2" sx={{ m: 0, textAlign: "right" }}>{coins(f.bribe_income)} coins</Typography>
+          </>
+        )}
+        {f.fines > 0 && (
+          <>
+            <Typography component="dt" variant="body2">Fines</Typography>
+            <Typography component="dd" variant="body2" sx={{ m: 0, textAlign: "right" }}>−{coins(f.fines)} coins</Typography>
+          </>
+        )}
         <Typography component="dt" variant="body2" fontWeight={700}>Your bonus</Typography>
         <Typography component="dd" variant="body2" fontWeight={700} sx={{ m: 0, textAlign: "right" }}>
           {f.payoff_money.toFixed(2)} {snap.currency}
@@ -418,9 +506,9 @@ export default function CoordinatorScreen({ snap, call }) {
   else if (snap.phase === "policy") main = <PolicyForm key={key} snap={snap} call={call} />;
   else if (snap.phase === "communication") {
     main = (
-      <Section title="The islanders can talk">
-        <Alert severity="info">Chat is not available in this version of the game yet.</Alert>
-        <ReadyButton snap={snap} call={call} />
+      <Section title="Talk and offers">
+        <CoordinatorChat snap={snap} call={call} />
+        <ReadyButton snap={snap} call={call} label="I'm done here" />
       </Section>
     );
   } else if (snap.phase === "decision") {

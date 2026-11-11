@@ -35,7 +35,9 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 | `backend/app/models/game_models.py` | Tables: sessions, participants, tokens, Prolific mapping, groups, append-only event log |
 | `backend/app/devtools/fake_players.py` | Dev tool: scripted clients that fill seats for local testing |
 | `frontend/src/pages/PlayPage.jsx`, `frontend/src/game/` | Participant game UI |
-| `frontend/src/game/components/CoordinatorScreen.jsx` | Coordinator dashboard: rule form, group charts, per-islander table |
+| `frontend/src/game/components/CoordinatorScreen.jsx` | Coordinator dashboard: rule form (incl. favors), group charts, per-islander table |
+| `frontend/src/game/components/Chat.jsx` | Talk step: group chat, private messages, offers (islanders) and inbox (coordinator) |
+| `backend/app/game/communication.py` | Messages, rate limits, bribe offers with escrow, the bribe-income cap |
 | `frontend/src/game/components/Instructions.jsx` | Participant instructions (numbers from `GET /api/rules`); preview at `/instruction` |
 | `backend/config/default.yaml` | **All** game parameters (nothing numeric is hard-coded) |
 | `backend/config/spec_original.yaml` | Original spec parameter values (before calibration), for reproducibility |
@@ -50,7 +52,7 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 - [x] 2. Simulation CLI with bots, welfare/stock plots, dilemma check
 - [x] 3. Multiplayer flow: rooms, phases, timers, player UI, `none` condition end to end
 - [x] 4. Human coordinator dashboard and policy pipeline
-- [ ] 5. Communication and bribery: chat, DMs, escrow, favors, detection
+- [x] 5. Communication and bribery: chat, DMs, escrow, favors, detection
 - [ ] 6. Coordinator decision support: policy preview, lever-change logging, coordinator dropout
 - [ ] 7. Onboarding and exit: consent, instructions, quiz, practice, questionnaire, payment, Prolific
 - [ ] 8. Admin panel, exports, dropout handling
@@ -113,7 +115,8 @@ curl -u admin:admin -X POST localhost:8000/api/admin/sessions \
 # 4. open the participant link (Prolific appends PROLIFIC_PID, STUDY_ID, SESSION_ID)
 open "http://localhost:3000/play?session=AB12CD34&PROLIFIC_PID=me"
 
-# 5. fill the other seats with scripted clients (testing only; a fake coordinator sets bots.stub_policy)
+# 5. fill the other seats with scripted clients (testing only; a fake coordinator sets bots.stub_policy
+#    and answers offers at random; --chatty makes fake islanders chat and send offers)
 cd backend && poetry run python -m app.devtools.fake_players --session AB12CD34 --n 3   # --n 4 for a human group
 
 # live status of a session's groups
@@ -137,7 +140,8 @@ timeouts. Every action is appended to the `ie_event_log` table.
 
 **Socket protocol** (`backend/app/sockets/sockets.py`): the client connects with
 `auth={token}` and receives `state` snapshots; it sends `enter_waiting_room`,
-`submit_policy` (coordinator), `submit_decision`, `ready` and `submit_rating`, each
+`submit_policy` (coordinator), `send_message`, `offer_bribe` (islander), `respond_bribe`
+(coordinator), `submit_decision`, `ready` and `submit_rating`, each
 acknowledged with `{ok, error?}`. What a participant may see is built only by
 `GroupRuntime.snapshot_for_participant()`, which uses the engine's observation functions
 (`player_observation`, `coordinator_observation`). A non-human `CoordinatorBackend` (e.g.

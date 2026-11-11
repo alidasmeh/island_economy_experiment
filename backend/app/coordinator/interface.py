@@ -55,7 +55,7 @@ class ScriptedCoordinator:
             self._current = {**self._current, **self.script[obs.round]}
         policy = Policy.from_dict(self._current)
         responses = {m["offer_id"]: BribeResponse(self.accept_bribes)
-                     for m in obs.inbox if m.get("type") == "bribe"}
+                     for m in obs.inbox if m.get("type") == "bribe" and m.get("status", "pending") == "pending"}
         return CoordinatorAction(policy=policy, bribe_responses=responses)
 
     @classmethod

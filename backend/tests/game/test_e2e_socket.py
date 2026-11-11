@@ -156,7 +156,7 @@ async def test_human_coordinator_game_over_sockets(server):
         code = r.json()["session_code"]
         joins = [(await http.post("/api/join", json={"session_code": code})).json() for _ in range(5)]
 
-    finished, roles, clients = {}, {}, []
+    finished, roles, clients, sent = {}, {}, [], []
 
     def make_client(i):
         c = socketio.AsyncClient()
@@ -173,6 +173,15 @@ async def test_human_coordinator_game_over_sockets(server):
             if s["done"]:
                 return
             if s["role"] == "coordinator":
+                if s["phase"] == "communication":
+                    pending = [m for m in s["observation"]["inbox"]
+                               if m["type"] == "bribe" and m["status"] == "pending"]
+                    for m in pending:
+                        await c.emit("respond_bribe", {"offer_id": m["offer_id"], "accept": True,
+                                                       "favor": "audit_immune", "reply": "ok"})
+                    if s["round"] > 1 or any(m["type"] == "bribe" for m in s["observation"]["inbox"]):
+                        await c.emit("ready", {"phase": "communication"})
+                    return
                 if s["phase"] == "policy":
                     obs = s["observation"]
                     assert "n_rounds" not in obs
@@ -183,6 +192,11 @@ async def test_human_coordinator_game_over_sockets(server):
                 return
             if s["phase"] == "decision":
                 await c.emit("submit_decision", {"round": s["round"], "harvest": 4, "contribute": 3, "save": 3})
+            elif s["phase"] == "communication" and s["round"] == 1 and s["seat"] == 0 and not sent:
+                sent.append(True)
+                assert (await c.call("send_message", {"channel": "public", "text": "hi group"}))["ok"]
+                assert (await c.call("offer_bribe", {"amount": 5, "note": "be kind"}))["ok"]
+                await c.emit("ready", {"phase": "communication"})
             elif s["phase"] in ("event", "communication", "resolution"):
                 await c.emit("ready", {"phase": s["phase"]})
 
@@ -218,3 +232,6 @@ async def test_human_coordinator_game_over_sockets(server):
         pol = (await db.execute(select(EventLog).where(EventLog.kind == "policy"))).scalars().all()
         assert len(pol) == g.n_rounds and not any(p.payload["timeout"] for p in pol)
         assert pol[-1].payload["policy"]["tax_rate"] == 0.2
+        kinds = dict((await db.execute(select(EventLog.kind, func.count()).group_by(EventLog.kind))).all())
+        assert kinds["message"] == 1 and kinds["bribe_offered"] == 1 and kinds["bribe_response"] == 1
+        assert kinds["favor_granted"] == 1 and kinds["bribe_settled"] == 1

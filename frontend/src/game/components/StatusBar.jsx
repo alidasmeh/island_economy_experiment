@@ -102,6 +102,23 @@ export function SharedState({ snap }) {
   );
 }
 
+const FAVOR_TEXT = {
+  quota_exempt: "the quota does not apply to you",
+  audit_immune: "you are never audited",
+  double_redistribution_weight: "you get a double share of the pot",
+};
+
+// Special treatment the coordinator granted this islander (only they are told).
+function OwnFavors({ favors }) {
+  const on = Object.entries(favors || {}).filter(([, v]) => v).map(([k]) => FAVOR_TEXT[k] || k);
+  if (!on.length) return null;
+  return (
+    <Typography variant="body2" sx={{ mt: 0.5 }}>
+      <b>Special treatment for you</b> (the other islanders are not told): {on.join("; ")}.
+    </Typography>
+  );
+}
+
 // The rules in force. In the no-coordinator condition there is no one setting policy.
 export function PolicyBanner({ snap }) {
   const p = snap.policy;
@@ -121,6 +138,7 @@ export function PolicyBanner({ snap }) {
           “{p.announcement}”
         </Typography>
       )}
+      {snap.role === "player" && <OwnFavors favors={snap.observation.own_favors} />}
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
         {rules.length
           ? rules.join(" · ")
