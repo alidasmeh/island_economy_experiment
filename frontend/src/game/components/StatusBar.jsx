@@ -138,6 +138,11 @@ export function PolicyBanner({ snap }) {
           “{p.announcement}”
         </Typography>
       )}
+      {snap.role === "player" && snap.coordinator_left && (
+        <Typography variant="body2" sx={{ mt: 0.5 }}>
+          <b>The coordinator has left the game.</b> These rules stay in force for the rest of the game.
+        </Typography>
+      )}
       {snap.role === "player" && <OwnFavors favors={snap.observation.own_favors} />}
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
         {rules.length

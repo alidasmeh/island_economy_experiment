@@ -33,7 +33,12 @@ async def test_all_timeouts_keep_default_policy_and_finish(make_cfg):
     ended = [e["payload"]["phase"] for e in store.of_kind("phase_ended")]
     assert ended[:5] == ["event", "policy", "communication", "decision", "resolution"]
     pol = store.of_kind("policy")
-    assert len(pol) == 3 and all(p["payload"]["timeout"] and p["participant_id"] == COORD for p in pol)
+    # Two missed policy steps in a row = dropout: round 3 has no policy step, the group is flagged.
+    n_missed = rt.cfg.coordinator_missed_policy_phases
+    assert len(pol) == n_missed and all(p["payload"]["timeout"] and p["participant_id"] == COORD for p in pol)
+    assert rt.coordinator_dropped and rt.flags == [{"type": "coordinator_dropout", "round": n_missed}]
+    assert len(store.of_kind("coordinator_dropout")) == 1
+    assert "policy" not in [e["payload"]["phase"] for e in store.of_kind("phase_ended") if e["round"] == 3]
     assert rt.policy.to_dict() == make_human(make_cfg(FAST)).policy.to_dict()
     final = transport.last(COORD)["final"]
     assert final["welfare_bonus"] == pytest.approx(rt.cfg.welfare_bonus_rate * final["group_payoff_coins"])

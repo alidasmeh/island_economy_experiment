@@ -112,6 +112,9 @@ class Config:
     phase_end_when_all_ready: dict[str, bool]
     phase_grace_seconds: float
     time_scale: float
+    # decision support and dropout
+    max_drafts_per_phase: int
+    coordinator_missed_policy_phases: int
     # decision
     timeout_default_allocation: dict[str, int]
     # bots
@@ -228,6 +231,8 @@ def config_from_dict(raw: dict[str, Any], *, source_path: str = "", sha256: str 
         phase_end_when_all_ready={name: bool(g(f"phases.{name}.end_when_all_ready")) for name in PHASES},
         phase_grace_seconds=float(g("phases.grace_seconds")) * _time_scale(raw),
         time_scale=_time_scale(raw),
+        max_drafts_per_phase=int(g("decision_support.max_drafts_per_phase")),
+        coordinator_missed_policy_phases=int(g("dropout.coordinator_missed_policy_phases")),
         timeout_default_allocation={k: int(v) for k, v in g("decision.timeout_default_allocation").items()},
         bot_allocations={
             name: {k: int(v) for k, v in g(f"bots.{name}").items()}
@@ -292,6 +297,8 @@ def _validate(cfg: Config) -> None:
            cfg.snapshot_max_messages) < 1 \
             or cfg.rate_limit_window_seconds <= 0:
         errs.append("communication limits must be positive")
+    if cfg.max_drafts_per_phase < 1 or cfg.coordinator_missed_policy_phases < 1:
+        errs.append("decision_support.max_drafts_per_phase and dropout.coordinator_missed_policy_phases must be >= 1")
     if cfg.coins_per_currency_unit <= 0:
         errs.append("coins_per_currency_unit must be > 0")
     if errs:

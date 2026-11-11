@@ -138,7 +138,9 @@ the instructions, and that messages are recorded for the research.
 with audit chance and fine, tax, matching of infrastructure work, what happens to the tax
 pot, storm insurance, what islanders see about each other, and an announcement), charts of
 the group's wealth, inequality and fish stock, a table of what each islander did in the
-last round, and in the Talk step an inbox with **Accept** and **Refuse** buttons, the group
+last round, a live **estimate** under the rule form of what the chosen rules would do this
+round (each islander's catch, tax, share of the pot and expected fines, the pot and the fish
+left — assuming everyone repeats last round's split), and in the Talk step an inbox with **Accept** and **Refuse** buttons, the group
 chat and private messages. Special treatment can also be given or removed in the rule form. Coordinators never fish. Islanders are told truthfully that the coordinator is
 another participant.
 
@@ -147,6 +149,11 @@ another participant.
 - If someone does not decide in time, their choice from the previous round is used again
   (in round 1 a default split), and this is recorded as a timeout. If the coordinator does
   not confirm rules in time, the previous rules stay in force (also recorded).
+- If the coordinator misses the rule step **2 rounds in a row**, they count as having left:
+  the current rules stay fixed for the rest of the game, the rule step is skipped, offers are
+  no longer possible, and the islanders are told that the coordinator has left. The group is
+  **flagged** ("coordinator left (round N)" on the dashboard) and should be analysed
+  separately. The number of rounds is a setting.
 - A participant who closes the tab can reopen the same link and continue where the group is.
 - If the game server is restarted, games that are running at that moment end; their
   participants see a message to contact you. Do not restart the server during a session.
@@ -178,7 +185,8 @@ The number of rounds is shown to you on the dashboard only; participants never s
 
 Every action is stored with a time stamp: when someone joins, which condition and role they
 were given, how long they spent on the instructions, entering the waiting room, every set of
-rules the coordinator confirmed (with response time and which rules changed), every chat and
+rules the coordinator confirmed (with response time and which rules changed), every single
+change the coordinator tried in the rule form before confirming (with its time), every chat and
 private message, every offer with its answer, any special treatment granted, whether it was
 paid and whether it was discovered, every decision (with response time and how often
 the sliders were moved), timeouts, the full outcome of every round (catch, income, savings,
@@ -194,7 +202,8 @@ only.
 
 | Available now | Coming |
 | --- | --- |
-| No-coordinator and human-coordinator conditions, end to end | Rule preview for the coordinator, coordinator dropout handling (milestone 6) |
+| No-coordinator and human-coordinator conditions, end to end | |
+| Coordinator's live estimate, logging of every rule change, coordinator dropout | |
 | Instructions for each condition and role, with an interactive example | |
 | Chat, private messages, offers to the coordinator and special treatment | |
 | Waiting room and automatic group forming | Consent page, comprehension quiz, practice rounds, questionnaire, Prolific completion link (milestone 7) |

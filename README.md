@@ -26,6 +26,7 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 | `backend/` | FastAPI + python-socketio + async SQLAlchemy (PostgreSQL) |
 | `backend/app/engine/` | Pure game engine: config, seeded setup, `resolve_round`, validation, metrics |
 | `backend/app/engine/observation.py` | What each role may see (players, coordinator) |
+| `backend/app/engine/preview.py` | Coordinator's policy preview: the real round rules on a copy, with last round's splits |
 | `backend/app/bots/` | Bot strategies: cooperative, selfish, conditional, random |
 | `backend/app/coordinator/` | Coordinator interface (observation in, action out) and scripted stub |
 | `backend/app/sim/` | Headless simulation CLI, dilemma check, plots |
@@ -53,7 +54,7 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 - [x] 3. Multiplayer flow: rooms, phases, timers, player UI, `none` condition end to end
 - [x] 4. Human coordinator dashboard and policy pipeline
 - [x] 5. Communication and bribery: chat, DMs, escrow, favors, detection
-- [ ] 6. Coordinator decision support: policy preview, lever-change logging, coordinator dropout
+- [x] 6. Coordinator decision support: policy preview, lever-change logging, coordinator dropout
 - [ ] 7. Onboarding and exit: consent, instructions, quiz, practice, questionnaire, payment, Prolific
 - [ ] 8. Admin panel, exports, dropout handling
 - [ ] 9. Pilot readiness: load test, run/deploy/config docs
@@ -140,7 +141,7 @@ timeouts. Every action is appended to the `ie_event_log` table.
 
 **Socket protocol** (`backend/app/sockets/sockets.py`): the client connects with
 `auth={token}` and receives `state` snapshots; it sends `enter_waiting_room`,
-`submit_policy` (coordinator), `send_message`, `offer_bribe` (islander), `respond_bribe`
+`draft_policy` and `submit_policy` (coordinator), `send_message`, `offer_bribe` (islander), `respond_bribe`
 (coordinator), `submit_decision`, `ready` and `submit_rating`, each
 acknowledged with `{ok, error?}`. What a participant may see is built only by
 `GroupRuntime.snapshot_for_participant()`, which uses the engine's observation functions

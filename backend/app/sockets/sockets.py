@@ -7,6 +7,7 @@ per-participant snapshot) whenever something the participant may see changes.
 
 Client -> server events (all acknowledged with {"ok": bool, "error"?: str}):
     enter_waiting_room      {instructions_seconds?}
+    draft_policy            {round, levers...}  -> {ok, preview}   (coordinator: logged lever change)
     submit_policy           {round, quota, tax_rate, redistribution, match_rate, fine, audit_prob, insurance,
                              info_policy, announcement}            (coordinator, policy phase)
     send_message            {channel: public|direct, to?: p0..p3|coordinator, text}   (communication step)
@@ -103,6 +104,11 @@ async def enter_waiting_room(sid, data=None):
             info["instructions_seconds"] = max(0, min(int(data["instructions_seconds"]), 86400))
         return await get_service().lobby.enter_waiting_room(p, info)
     return await _call(sid, go)
+
+
+@sio.on("draft_policy")
+async def draft_policy(sid, data=None):
+    return await _call(sid, lambda pid, _s: _runtime(pid).draft_policy(pid, data))
 
 
 @sio.on("submit_policy")

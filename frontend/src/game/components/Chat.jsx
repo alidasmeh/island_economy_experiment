@@ -279,7 +279,7 @@ export function PlayerChat({ snap, call }) {
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="fullWidth" sx={{ mb: 1 }}>
         <Tab value="public" aria-label="Group chat" label={<TabLabel n={pubUnread}>Group</TabLabel>} />
         <Tab value="direct" aria-label="Private messages" label={<TabLabel n={dmUnread}>Private</TabLabel>} />
-        {snap.has_coordinator && <Tab value="offer" aria-label="Offer to the coordinator" label="Offer" />}
+        {snap.has_coordinator && !snap.coordinator_left && <Tab value="offer" aria-label="Offer to the coordinator" label="Offer" />}
       </Tabs>
       {tab === "public" && (
         <>
@@ -378,13 +378,19 @@ export function CoordinatorChat({ snap, call }) {
       </Tabs>
       {tab === "inbox" && (
         <>
+          {snap.coordinator_left ? (
+            <Typography variant="body2" color="text.secondary">
+              Because the rules are now fixed, islanders can no longer make offers.
+            </Typography>
+          ) : (
           <Typography variant="body2" color="text.secondary">
             Islanders can privately offer you coins. You earn {pct(snap.bribe_income_rate)} of an accepted offer, up to{" "}
             {coins(snap.bribe_income_cap, 0)} coins in the whole game ({coins(room)} left). An accepted offer is
             discovered with a chance of {pct(snap.limits.bribe_detection_prob)}; then you and the islander each pay a
             fine of {coins(snap.limits.bribe_fine, 0)} coins. Offers you do not answer in this step are refused.
           </Typography>
-          {offers.length === 0 && (
+          )}
+          {offers.length === 0 && !snap.coordinator_left && (
             <Typography variant="body2" sx={{ mt: 1 }}>No offers so far.</Typography>
           )}
           {[...offers].reverse().map((item) => (

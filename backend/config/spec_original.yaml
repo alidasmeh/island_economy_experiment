@@ -102,6 +102,15 @@ phases:
   grace_seconds: 1.5           # late submissions accepted this long after a deadline (network delay)
   time_scale: 1.0              # multiplies every timer; env ISLAND_TIME_SCALE overrides (dev/testing only)
 
+# Coordinator decision support (section 7).
+decision_support:
+  max_drafts_per_phase: 500    # logged rule changes (with live preview) per policy step; protects the log
+
+# Dropouts (section 2). A coordinator who lets this many policy steps in a row pass without
+# confirming rules is treated as dropped out: the rules stay fixed, the group is flagged.
+dropout:
+  coordinator_missed_policy_phases: 2
+
 decision:
   timeout_default_allocation: {harvest: 4, contribute: 3, save: 3}   # round-1 timeout allocation
 

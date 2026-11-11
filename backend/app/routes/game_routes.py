@@ -98,7 +98,8 @@ async def session_detail(code: str, _admin: str = Depends(require_admin)) -> dic
         rt = lobby.groups.get(g.id)
         groups.append({"group_id": g.id, "condition": g.condition, "seed": g.seed, "n_rounds": g.n_rounds,
                        "status": rt.status if rt else g.status, "phase": rt.phase if rt else None,
-                       "round": rt.round if rt else None, "flagged": g.flagged})
+                       "round": rt.round if rt else None, "flagged": g.flagged or bool(rt and rt.flags),
+                       "flags": (rt.flags if rt else None) or list(g.flags or [])})
     return {"session_code": s.id, "label": s.label, "status": s.status, "assignments": s.assignments,
             "params_sha256": s.params_sha256, "code_version": s.code_version,
             "n_waiting": len(live.waiting) if live else 0, "groups": groups}

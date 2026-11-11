@@ -302,3 +302,30 @@ interface clean. Parameter values live in `backend/config/default.yaml`.
   recorded for the research.
 - **Scripted coordinator** answers offers at the end of the communication step via the same
   `CoordinatorBackend.act` path (`bribe_responses`).
+
+## Milestone 6: coordinator decision support
+
+- **Preview = the real rules.** `engine/preview.py` runs `resolve_round` on a copy of the
+  state with the drafted policy, assuming every islander repeats last round's split (round 1:
+  `decision.timeout_default_allocation`), no transfers and no offers, and an RNG under which
+  no audit or detection happens. The expected quota fine (audit chance × fine × fish over the
+  quota, respecting favors) is added separately. The current event is known in the policy
+  step, so its multipliers (and an insurance payout) are included. Labelled as an estimate on
+  screen. Only the coordinator receives it.
+- **Lever-change logging.** Every *finished* change in the rule form is sent as
+  `draft_policy` and logged as `policy_draft` (full drafted policy incl. favors and
+  announcement, changed levers vs. the previous draft, ms into the step, running number); the
+  answer carries a fresh preview. "Finished" = slider released or moved one step with the
+  keyboard, a menu choice, a switch, a checkbox, or a pause of 800 ms while typing the
+  announcement; intermediate positions while dragging a slider are not logged. Drafts never
+  take effect by themselves; at most `decision_support.max_drafts_per_phase` per step.
+- **Coordinator dropout.** Defined as missing `dropout.coordinator_missed_policy_phases`
+  (default 2) policy steps in a row without confirming rules ("Keep the current rules" counts
+  as confirming). Connection state is not used, so a coordinator with a flaky connection who
+  still confirms is not dropped. On dropout: the current policy (incl. favors) is frozen, the
+  policy step is skipped for the rest of the game, offers are disabled, ready-steps no longer
+  wait for the coordinator, islanders see "the coordinator has left", the coordinator sees why,
+  and the group is flagged (`group_flagged`, `ie_groups.flagged/flags`, dashboard label).
+  A dropped coordinator cannot come back. Their payoff is still computed by the usual rule;
+  whether to pay it is the researchers' decision.
+- After one missed step the coordinator sees a warning that one more miss fixes the rules.

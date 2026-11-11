@@ -1,7 +1,7 @@
 // The coordinator's dashboard (human condition). Everything shown comes from the coordinator snapshot,
 // which the server builds from coordinator_observation(): group history, last round's per-islander
 // behaviour, the current rules and the lever ranges.
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -159,6 +159,61 @@ function Section({ title, children }) {
 
 // ---------------------------------------------------------------- rules form
 
+// A pause in typing the announcement this long counts as a finished change (UI pacing only).
+const ANNOUNCEMENT_PAUSE_MS = 800;
+
+function PolicyPreview({ preview, snap, busy }) {
+  if (!preview) return null;
+  const rows = preview.players;
+  const fine = preview.expected_fines > 0;
+  return (
+    <Box sx={{ mt: 2.5, p: 1.5, border: 1, borderColor: "warning.light", borderRadius: 1, opacity: busy ? 0.6 : 1 }}
+      aria-live="polite" aria-busy={busy}>
+      <Typography variant="subtitle2">Estimate for this round — not a promise</Typography>
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+        {preview.based_on === "last_round"
+          ? "Assumes every islander splits their points as in the last round"
+          : "Assumes every islander uses the first-round default split"}
+        {" "}and makes no transfers or offers. Real choices, audits and offers will differ.
+      </Typography>
+      <Box sx={{ overflowX: "auto" }}>
+        <Table size="small" aria-label="Estimated effect of your rules"
+          sx={{ "& td, & th": { px: 0.75 }, "& td:first-of-type, & th:first-of-type": { pl: 0 } }}>
+          <TableHead>
+            <TableRow>
+              <TableCell>Islander</TableCell>
+              <TableCell align="right">Fish</TableCell>
+              <TableCell align="right">Tax</TableCell>
+              <TableCell align="right">Pot share</TableCell>
+              {fine && <TableCell align="right">Exp. fine</TableCell>}
+              <TableCell align="right">Coins ±</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={r.seat}>
+                <TableCell>{snap.labels[r.seat].replace("Islander ", "")}</TableCell>
+                <TableCell align="right">{coins(r.harvest)}</TableCell>
+                <TableCell align="right">{coins(r.tax)}</TableCell>
+                <TableCell align="right">{coins(r.redistribution)}</TableCell>
+                {fine && <TableCell align="right">{coins(r.expected_fine)}</TableCell>}
+                <TableCell align="right">{r.coins_change >= 0 ? "+" : "−"}{coins(Math.abs(r.coins_change))}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+      <Typography variant="body2" sx={{ mt: 1 }}>
+        Pot about {coins(preview.pot_collected)} coins
+        {preview.match_cost > 0 ? `, ${coins(preview.match_cost)} of it for matching` : ""}
+        {preview.pot_to_infrastructure > 0 ? `, ${coins(preview.pot_to_infrastructure)} into infrastructure` : ""}.
+        Fish left after the round: about {coins(preview.stock_after)}; infrastructure about{" "}
+        {coins(preview.infra_after, 2)}.
+      </Typography>
+    </Box>
+  );
+}
+
 // Keep only islanders with at least one favor switched on (the server stores the full map).
 function normFavors(f) {
   const out = {};
@@ -171,7 +226,7 @@ function normFavors(f) {
   return out;
 }
 
-function LeverSlider({ label, help, value, onChange, range, format, disabled }) {
+function LeverSlider({ label, help, value, onChange, onCommit, range, format, disabled }) {
   const step = range.step || (range.max - range.min <= 1 ? 0.01 : 1);
   return (
     <Box sx={{ mt: 1.5, opacity: disabled ? 0.5 : 1 }}>
@@ -187,6 +242,7 @@ function LeverSlider({ label, help, value, onChange, range, format, disabled }) 
         step={step}
         disabled={disabled}
         onChange={(_e, v) => onChange(v)}
+        onChangeCommitted={() => onCommit && onCommit()}
         aria-label={label}
         sx={{ py: 1 }}
       />
@@ -204,6 +260,8 @@ function PolicyForm({ snap, call }) {
   }, [snap.full_policy]);
   const [form, setForm] = useState(start);
   const [changes, setChanges] = useState(0);
+  const [commitN, setCommitN] = useState(0);
+  const commit = () => setCommitN((n) => n + 1);
   const startFavors = useMemo(() => snap.full_policy.favors || {}, [snap.full_policy]);
   const [favors, setFavors] = useState(startFavors);
   const toggleFavor = (seat, kind) => {
@@ -212,17 +270,51 @@ function PolicyForm({ snap, call }) {
       return { ...f, [seat]: { ...cur, [kind]: !cur[kind] } };
     });
     setChanges((c) => c + 1);
+    commit();
   };
   const favorsChanged = JSON.stringify(normFavors(favors)) !== JSON.stringify(normFavors(startFavors));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const shownAt = useRef(Date.now());
 
-  const set = (k) => (v) => {
+  // `set` changes a value; `commit` marks a finished change (slider released or moved by a key, a
+  // menu choice, a switch, a checkbox, a pause in typing), which is sent to the server as a draft.
+  const set = (k, { committed = false } = {}) => (v) => {
     setForm((f) => (f[k] === v ? f : { ...f, [k]: v }));
     setChanges((c) => c + 1);
+    if (committed) commit();
   };
+  const setNow = (k) => set(k, { committed: true });
   const changed = LEVERS.filter((k) => form[k] !== start[k]).concat(favorsChanged ? ["favors"] : []);
+
+  // Every finished change is sent as a draft (logged by the server) and answered with a fresh estimate.
+  const [preview, setPreview] = useState(snap.preview);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const lastSent = useRef(JSON.stringify({ ...start, favors: normFavors(startFavors) }));
+  const latest = useRef(null);
+  latest.current = { ...form, favors: normFavors(favors) };
+  useEffect(() => {
+    if (commitN === 0) return;
+    const body = latest.current;
+    const key = JSON.stringify(body);
+    if (key === lastSent.current) return;
+    lastSent.current = key;
+    setPreviewBusy(true);
+    call("draft_policy", { round: snap.round, ...body }).then((ack) => {
+      setPreviewBusy(false);
+      if (ack.ok && ack.preview) setPreview(ack.preview);
+    });
+  }, [commitN, call, snap.round]);
+  // The announcement counts as changed after a short pause in typing.
+  const firstText = useRef(true);
+  useEffect(() => {
+    if (firstText.current) {
+      firstText.current = false;
+      return undefined;
+    }
+    const t = setTimeout(commit, ANNOUNCEMENT_PAUSE_MS);
+    return () => clearTimeout(t);
+  }, [form.announcement]);
 
   if (snap.done && snap.submitted_policy) {
     return (
@@ -265,6 +357,7 @@ function PolicyForm({ snap, call }) {
         help="The most fish one islander may catch per round. 0 = no quota."
         value={form.quota}
         onChange={set("quota")}
+        onCommit={commit}
         range={ranges.quota}
         format={(v) => (v === 0 ? "no quota" : `${v} fish`)}
       />
@@ -273,6 +366,7 @@ function PolicyForm({ snap, call }) {
         help="Chance that an islander who catches more than the quota is checked."
         value={form.audit_prob}
         onChange={set("audit_prob")}
+        onCommit={commit}
         range={ranges.audit_prob}
         format={pct}
         disabled={noQuota}
@@ -282,6 +376,7 @@ function PolicyForm({ snap, call }) {
         help="Coins an audited islander pays for every fish over the quota."
         value={form.fine}
         onChange={set("fine")}
+        onCommit={commit}
         range={ranges.fine}
         format={(v) => `${v} coins per fish`}
         disabled={noQuota}
@@ -293,6 +388,7 @@ function PolicyForm({ snap, call }) {
         help="Share of each islander's fishing income that goes into the common pot."
         value={form.tax_rate}
         onChange={set("tax_rate")}
+        onCommit={commit}
         range={ranges.tax_rate}
         format={pct}
       />
@@ -301,6 +397,7 @@ function PolicyForm({ snap, call }) {
         help="The pot adds this share on top of every point put into infrastructure (if the pot has enough)."
         value={form.match_rate}
         onChange={set("match_rate")}
+        onCommit={commit}
         range={ranges.match_rate}
         format={pct}
         disabled={noPot}
@@ -311,7 +408,7 @@ function PolicyForm({ snap, call }) {
           labelId="redistribution-label"
           label="What happens to the rest of the pot"
           value={form.redistribution}
-          onChange={(e) => set("redistribution")(e.target.value)}
+          onChange={(e) => setNow("redistribution")(e.target.value)}
         >
           {ranges.redistribution.map((r) => (
             <MenuItem key={r} value={r}>{describeRedistribution(r)}</MenuItem>
@@ -321,7 +418,7 @@ function PolicyForm({ snap, call }) {
 
       <Typography variant="subtitle2" sx={{ mt: 2.5 }}>Storm insurance</Typography>
       <FormControlLabel
-        control={<Switch checked={form.insurance} onChange={(e) => set("insurance")(e.target.checked)} />}
+        control={<Switch checked={form.insurance} onChange={(e) => setNow("insurance")(e.target.checked)} />}
         label={form.insurance ? "On" : "Off"}
       />
       <Typography variant="caption" color="text.secondary" display="block">
@@ -330,7 +427,7 @@ function PolicyForm({ snap, call }) {
       </Typography>
 
       <Typography variant="subtitle2" sx={{ mt: 2.5 }}>What islanders see about each other</Typography>
-      <RadioGroup value={form.info_policy} onChange={(e) => set("info_policy")(e.target.value)}>
+      <RadioGroup value={form.info_policy} onChange={(e) => setNow("info_policy")(e.target.value)}>
         {ranges.info_policy.map((o) => (
           <FormControlLabel key={o} value={o} control={<Radio size="small" />} label={INFO_LABELS[o] || o} />
         ))}
@@ -377,6 +474,8 @@ function PolicyForm({ snap, call }) {
           </TableBody>
         </Table>
       </Box>
+
+      <PolicyPreview preview={preview} snap={snap} busy={previewBusy} />
 
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
       <Button fullWidth variant="contained" size="large" sx={{ mt: 2 }} disabled={busy} onClick={submit}>
@@ -489,6 +588,27 @@ function CoordinatorFinal({ snap }) {
   );
 }
 
+function DropoutNotice({ snap }) {
+  if (snap.coordinator_left) {
+    return (
+      <Alert severity="warning" sx={{ mb: 1.5 }}>
+        You did not confirm rules for {snap.missed_limit} rounds in a row, so the current rules now stay in force for
+        the rest of the game and the islanders have been told that the coordinator has left. You can keep watching.
+      </Alert>
+    );
+  }
+  if (snap.missed_in_a_row > 0 && snap.missed_in_a_row < snap.missed_limit) {
+    return (
+      <Alert severity="info" sx={{ mb: 1.5 }}>
+        You did not confirm rules last round. If you miss {snap.missed_limit - snap.missed_in_a_row} more in a row, the
+        rules will be fixed for the rest of the game. Use “Keep the current rules” if you do not want to change
+        anything.
+      </Alert>
+    );
+  }
+  return null;
+}
+
 export default function CoordinatorScreen({ snap, call }) {
   const key = `${snap.phase}-${snap.round}`;
   if (snap.phase === "finished") {
@@ -524,6 +644,7 @@ export default function CoordinatorScreen({ snap, call }) {
 
   return (
     <>
+      <DropoutNotice snap={snap} />
       <Box sx={{ mb: 1.5 }}>{main}</Box>
       <Section title="What each islander did last round">
         <PlayersTable snap={snap} />

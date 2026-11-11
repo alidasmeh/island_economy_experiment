@@ -212,12 +212,15 @@ class Lobby:
                                 n_rounds=n_rounds, seats=seats, coordinator=coordinator)
         rt = GroupRuntime(group_id=group_id, session_id=s.code, condition=condition, seed=seed, cfg=self.cfg,
                           seats=seats, coordinator=coordinator, store=self.store, transport=self.transport,
-                          code_version=self.code_version, on_finish=self._on_finish)
+                          code_version=self.code_version, on_finish=self._on_finish, on_flag=self._on_flag)
         self.groups[group_id] = rt
         for pid in rt.members():
             self.by_participant[pid] = rt
         log.info("group %s formed (%s, seed %s)", group_id, condition, seed)
         rt.start()
+
+    async def _on_flag(self, rt: GroupRuntime, flag: dict[str, Any]) -> None:
+        await repo.flag_group(rt.group_id, flag)
 
     async def _on_finish(self, rt: GroupRuntime) -> None:
         await repo.finish_group(rt.group_id, rt.status)

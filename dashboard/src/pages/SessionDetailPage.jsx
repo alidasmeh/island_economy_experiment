@@ -31,6 +31,12 @@ const PHASE_LABELS = {
   finished: "Finished",
 };
 
+const FLAG_LABELS = { coordinator_dropout: "coordinator left" };
+
+function flagLabel(f) {
+  return `${FLAG_LABELS[f.type] || f.type}${f.round ? ` (round ${f.round})` : ""}`;
+}
+
 function statusChip(status) {
   const color = { running: "primary", finished: "success", aborted: "error" }[status] || "default";
   return <Chip size="small" label={status} color={color} variant={status === "running" ? "filled" : "outlined"} />;
@@ -134,7 +140,10 @@ export default function SessionDetailPage() {
                       </TableCell>
                       <TableCell>{g.phase ? PHASE_LABELS[g.phase] || g.phase : "–"}</TableCell>
                       <TableCell>
-                        {statusChip(g.status)} {g.flagged && <Chip size="small" color="warning" label="flagged" />}
+                        {statusChip(g.status)}{" "}
+                        {g.flagged && (g.flags && g.flags.length
+                          ? g.flags.map((f, k) => <Chip key={k} size="small" color="warning" label={flagLabel(f)} sx={{ mr: 0.5 }} />)
+                          : <Chip size="small" color="warning" label="flagged" />)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -153,7 +162,7 @@ export default function SessionDetailPage() {
             </Typography>
           )}
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 2 }}>
-            Updates automatically every {REFRESH_MS / 1000} seconds
+            Flagged groups (for example, the coordinator left) should be analysed separately. Updates automatically every {REFRESH_MS / 1000} seconds
             {updated ? ` · last update ${updated.toLocaleTimeString()}` : ""}. The number of rounds is shown here
             only; participants never see it.
           </Typography>

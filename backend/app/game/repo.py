@@ -120,6 +120,14 @@ async def create_group(*, group_id: str, session_id: str, index: int, condition:
         await db.commit()
 
 
+async def flag_group(group_id: str, flag: dict[str, Any]) -> None:
+    async with get_db() as db:
+        g = await db.get(Group, group_id)
+        g.flagged = True
+        g.flags = [*(g.flags or []), flag]
+        await db.commit()
+
+
 async def finish_group(group_id: str, status: str) -> None:
     async with get_db() as db:
         g = await db.get(Group, group_id)
