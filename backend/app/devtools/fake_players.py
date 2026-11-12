@@ -5,7 +5,8 @@ Lets one person test the multiplayer flow in a browser:
     poetry run python -m app.devtools.fake_players --session CODE --n 3
 
 Each fake player joins via POST /api/join, connects over Socket.IO like a browser,
-enters the waiting room and plays a fixed bot strategy. For testing only: in a real
+consents, passes the quiz, plays the practice rounds, enters the waiting room, plays a
+fixed bot strategy and answers the questionnaire. For testing only: in a real
 session these would be indistinguishable from participants, so never run it there.
 """
 
@@ -20,6 +21,7 @@ import socketio
 
 from app.bots import STRATEGIES
 from app.engine import load_config
+from app.game import onboarding
 
 
 async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[float, float],
@@ -32,15 +34,58 @@ async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[f
         token = r.json()["token"]
     sio = socketio.AsyncClient()
     done = asyncio.Event()
-    acted: set[tuple[int, str]] = set()
+    acted: set[tuple[bool, int, str]] = set()
     answered: set[str] = set()
+
+    lock = asyncio.Lock()
+    tasks: set[asyncio.Task] = set()
 
     @sio.on("state")
     async def on_state(s):
-        if s.get("view") != "game":
-            return
-        if s["phase"] == "finished" or s.get("status") == "aborted":
+        # Each state is handled in its own task (awaiting an ack inside a handler would block
+        # the client from receiving it); the lock keeps them in order.
+        async def run():
+            async with lock:
+                while "/" not in sio.namespaces:
+                    await asyncio.sleep(0.01)
+                await handle(s)
+        t = asyncio.create_task(run())
+        tasks.add(t)
+        t.add_done_callback(tasks.discard)
+
+    async def onboard(s) -> bool:
+        view = s.get("view")
+        if view == "lobby":
+            if s["step"] == "consent":
+                await sio.call("give_consent", {"consent": True})
+            elif s["step"] == "instructions":
+                qs = onboarding.quiz_questions(cfg, s["condition"], s["role"])
+                await sio.call("submit_quiz", {"answers": {q.id: q.answer for q in qs}})
+            elif s["step"] == "practice":
+                await sio.call("start_practice", {})
+            elif s["step"] == "ready":
+                ack = await sio.call("enter_waiting_room", {})
+                print(f"fake player {i} ({strategy}): {ack}", flush=True)
+                if not ack.get("ok"):
+                    done.set()
+            return True
+        if view == "game" and s.get("practice") and s["phase"] == "finished":
+            await sio.call("finish_practice", {})
+            return True
+        if view in ("questionnaire",) or (view == "game" and s["phase"] == "finished"):
+            q = await sio.call("get_questionnaire", {})
+            if q.get("ok"):
+                answers = {it["id"]: random.randint(1, 7) if it["kind"] == "likert7" else
+                           "Prefer not to say" if it["kind"] == "choice" else None for it in q["items"]}
+                await sio.call("submit_questionnaire", {"answers": answers})
+            return True
+        if view in ("exit", "full", "unavailable") or s.get("status") == "aborted":
             done.set()
+            return True
+        return False
+
+    async def handle(s):
+        if await onboard(s) or s.get("view") != "game":
             return
         if s.get("role") == "coordinator" and s["phase"] == "communication":
             # Answer every new offer (offers can arrive after this fake coordinator is already done).
@@ -52,7 +97,7 @@ async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[f
                     await sio.call("respond_bribe", {"offer_id": m["offer_id"], "accept": yes,
                                                      "reply": "OK" if yes else "No, thanks",
                                                      "favor": "quota_exempt" if yes else None})
-        key = (s["round"], s["phase"])
+        key = (s.get("practice", False), s["round"], s["phase"])
         if s["done"] or key in acted:
             return
         if s.get("role") == "coordinator" and s["phase"] == "decision":
@@ -88,10 +133,7 @@ async def fake_player(i: int, url: str, code: str, strategy: str, delay: tuple[f
             print(f"fake player {i}: {ack}")
 
     await sio.connect(url, socketio_path="/ws", transports=["websocket"], auth={"token": token})
-    ack = await sio.call("enter_waiting_room", {})
-    print(f"fake player {i} ({strategy}): {ack}", flush=True)
-    if ack.get("ok"):
-        await done.wait()
+    await done.wait()
     await sio.disconnect()
 
 

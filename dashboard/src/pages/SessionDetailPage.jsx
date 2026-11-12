@@ -42,6 +42,23 @@ function statusChip(status) {
   return <Chip size="small" label={status} color={color} variant={status === "running" ? "filled" : "outlined"} />;
 }
 
+// Participant steps, in study order (see backend lobby.py).
+const STATUS_ORDER = [
+  ["joined", "consent page"],
+  ["consented", "instructions / quiz"],
+  ["quiz_passed", "passed quiz"],
+  ["practice", "practising"],
+  ["practice_done", "practice done"],
+  ["waiting", "waiting room"],
+  ["playing", "playing"],
+  ["finished", "questionnaire"],
+  ["completed", "completed"],
+  ["quiz_failed", "failed quiz"],
+  ["no_group", "left: no group"],
+  ["no_consent", "no consent"],
+  ["aborted", "aborted"],
+];
+
 export default function SessionDetailPage() {
   const { code } = useParams();
   const navigate = useNavigate();
@@ -107,6 +124,30 @@ export default function SessionDetailPage() {
               </Typography>
             </Paper>
           </Stack>
+
+          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Participants by step
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {STATUS_ORDER.filter(([k]) => data.participants_by_status && data.participants_by_status[k]).map(([k, text]) => (
+                <Chip key={k} size="small" variant="outlined" label={`${text}: ${data.participants_by_status[k]}`} />
+              ))}
+              {!data.participants_by_status || Object.keys(data.participants_by_status).length === 0 ? (
+                <Typography variant="body2" color="text.secondary">Nobody has opened the link yet.</Typography>
+              ) : null}
+            </Stack>
+            <Typography variant="subtitle2" sx={{ mt: 2 }} gutterBottom>
+              Completion codes
+            </Typography>
+            <Typography variant="body2" component="div">
+              {Object.entries(data.completion_codes || {}).filter(([k]) => k !== "no_consent").map(([k, v]) => (
+                <div key={k}>
+                  {k.replace("_", " ")}: <code>{v || "— not set"}</code>
+                </div>
+              ))}
+            </Typography>
+          </Paper>
 
           <Typography variant="h6" gutterBottom>
             Groups

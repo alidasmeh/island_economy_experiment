@@ -51,7 +51,8 @@ async def init_db():
 
 # Columns added after a table was first created (create_all never alters existing tables).
 _ADDED_COLUMNS = {
-    "ie_participants": {"condition": "VARCHAR(20)"},
+    "ie_participants": {"condition": "VARCHAR(20)", "quiz_attempts": "INTEGER DEFAULT 0", "bonus": "FLOAT"},
+    "ie_sessions": {"settings": "JSON"},
 }
 
 

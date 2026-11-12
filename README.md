@@ -38,6 +38,9 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 | `frontend/src/pages/PlayPage.jsx`, `frontend/src/game/` | Participant game UI |
 | `frontend/src/game/components/CoordinatorScreen.jsx` | Coordinator dashboard: rule form (incl. favors), group charts, per-islander table |
 | `frontend/src/game/components/Chat.jsx` | Talk step: group chat, private messages, offers (islanders) and inbox (coordinator) |
+| `backend/app/game/onboarding.py` | Quiz (built from config, graded on the server), questionnaire items, completion codes |
+| `frontend/src/game/components/Onboarding.jsx` | Consent, quiz, practice screens, questionnaire, payment page |
+| `frontend/src/game/studyInfo.js` | Consent-page details to fill in before launch (researchers, contact, ethics approval) |
 | `backend/app/game/communication.py` | Messages, rate limits, bribe offers with escrow, the bribe-income cap |
 | `frontend/src/game/components/Instructions.jsx` | Participant instructions (numbers from `GET /api/rules`); preview at `/instruction` |
 | `backend/config/default.yaml` | **All** game parameters (nothing numeric is hard-coded) |
@@ -55,7 +58,7 @@ Design choices made where the spec was ambiguous are recorded in [DECISIONS.md](
 - [x] 4. Human coordinator dashboard and policy pipeline
 - [x] 5. Communication and bribery: chat, DMs, escrow, favors, detection
 - [x] 6. Coordinator decision support: policy preview, lever-change logging, coordinator dropout
-- [ ] 7. Onboarding and exit: consent, instructions, quiz, practice, questionnaire, payment, Prolific
+- [x] 7. Onboarding and exit: consent, instructions, quiz, practice, questionnaire, payment, Prolific
 - [ ] 8. Admin panel, exports, dropout handling
 - [ ] 9. Pilot readiness: load test, run/deploy/config docs
 
@@ -140,13 +143,22 @@ takes effect when the step ends; without one the previous rules stay (`policy` e
 timeouts. Every action is appended to the `ie_event_log` table.
 
 **Socket protocol** (`backend/app/sockets/sockets.py`): the client connects with
-`auth={token}` and receives `state` snapshots; it sends `enter_waiting_room`,
+`auth={token}` and receives `state` snapshots; it sends `give_consent`, `submit_quiz`,
+`start_practice`, `finish_practice`, `enter_waiting_room`, `leave_waiting_room`,
+`get_questionnaire`, `submit_questionnaire`,
 `draft_policy` and `submit_policy` (coordinator), `send_message`, `offer_bribe` (islander), `respond_bribe`
 (coordinator), `submit_decision`, `ready` and `submit_rating`, each
 acknowledged with `{ok, error?}`. What a participant may see is built only by
 `GroupRuntime.snapshot_for_participant()`, which uses the engine's observation functions
 (`player_observation`, `coordinator_observation`). A non-human `CoordinatorBackend` (e.g.
 the scripted stub) can take the coordinator seat through the same observation → action path.
+
+**Participant steps** (`Participant.status`, enforced by `Lobby`): `joined` → `consented` →
+`quiz_passed` → `practice` → `practice_done` → `waiting` → `playing` → `finished`
+(questionnaire) → `completed`; exits `no_consent`, `quiz_failed`, `no_group`, `aborted`. The
+`state` snapshot's `view` (`lobby` with a `step`, `waiting`, `game`, `questionnaire`, `exit`)
+tells the client what to show. Practice rounds are a `GroupRuntime` with computer islanders
+(`practice=True`) whose events are logged with a `practice_` prefix.
 
 **Single process.** Live game state is held in memory, so the backend must run as one
 replica, and a restart ends the games in progress (participants then see a "game no longer

@@ -125,6 +125,15 @@ class Config:
     coins_per_currency_unit: float
     currency: str
     show_up_fee: float
+    # onboarding and exit (Milestone 7)
+    consent_version: str
+    quiz_max_attempts: int
+    practice_rounds: int
+    practice_seed: int
+    practice_bots: list[str]
+    waiting_room_max_seconds: float
+    completion_url: str
+    completion_codes: dict[str, str]
     # provenance
     source_path: str = ""
     sha256: str = ""
@@ -146,6 +155,9 @@ class Config:
 
 
 PHASES = ("event", "policy", "communication", "decision", "resolution")
+BOT_STRATEGIES = ("cooperative", "selfish", "conditional", "random")
+# How a participant can leave the study; each may have its own Prolific completion code.
+COMPLETION_OUTCOMES = ("completed", "quiz_failed", "no_group", "aborted", "no_consent")
 
 
 def _time_scale(raw: dict) -> float:
@@ -243,6 +255,14 @@ def config_from_dict(raw: dict[str, Any], *, source_path: str = "", sha256: str 
         coins_per_currency_unit=float(g("payment.coins_per_currency_unit")),
         currency=str(g("payment.currency")),
         show_up_fee=float(g("payment.show_up_fee")),
+        consent_version=str(g("onboarding.consent_version")),
+        quiz_max_attempts=int(g("onboarding.quiz_max_attempts")),
+        practice_rounds=int(g("onboarding.practice_rounds")),
+        practice_seed=int(g("onboarding.practice_seed")),
+        practice_bots=[str(b) for b in g("onboarding.practice_bots")],
+        waiting_room_max_seconds=float(g("onboarding.waiting_room_max_seconds")) * _time_scale(raw),
+        completion_url=str(g("prolific.completion_url")),
+        completion_codes={k: str(v or "") for k, v in (g("prolific.completion_codes") or {}).items()},
         source_path=source_path,
         sha256=sha256,
         raw=raw,
@@ -301,6 +321,14 @@ def _validate(cfg: Config) -> None:
         errs.append("decision_support.max_drafts_per_phase and dropout.coordinator_missed_policy_phases must be >= 1")
     if cfg.coins_per_currency_unit <= 0:
         errs.append("coins_per_currency_unit must be > 0")
+    if cfg.quiz_max_attempts < 1 or cfg.practice_rounds < 0 or cfg.waiting_room_max_seconds <= 0:
+        errs.append("onboarding: quiz_max_attempts >= 1, practice_rounds >= 0, waiting_room_max_seconds > 0")
+    if len(cfg.practice_bots) != cfg.n_players or any(b not in BOT_STRATEGIES for b in cfg.practice_bots):
+        errs.append(f"onboarding.practice_bots must list {cfg.n_players} strategies from {', '.join(BOT_STRATEGIES)}")
+    if "{code}" not in cfg.completion_url:
+        errs.append("prolific.completion_url must contain {code}")
+    if set(cfg.completion_codes) - set(COMPLETION_OUTCOMES):
+        errs.append(f"prolific.completion_codes keys must be among {', '.join(COMPLETION_OUTCOMES)}")
     if errs:
         raise ConfigError("; ".join(errs))
 

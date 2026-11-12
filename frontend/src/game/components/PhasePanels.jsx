@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -232,7 +232,19 @@ export function FinalPanel({ snap }) {
   );
 }
 
-export function WaitingRoom({ snap }) {
+export function WaitingRoom({ snap, call, clockOffset = 0 }) {
+  // After the maximum wait the participant may end the study (and is paid the participation fee).
+  const [now, setNow] = useState(() => Date.now() + clockOffset);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now() + clockOffset), 1000);
+    return () => clearInterval(id);
+  }, [clockOffset]);
+  const canLeave = call && snap.can_leave_at_ms && now >= snap.can_leave_at_ms;
+  const leave = async () => {
+    const ack = await call("leave_waiting_room", {});
+    if (!ack.ok) setError(ack.error || "Could not leave the waiting room");
+  };
   return (
     <Paper elevation={0} sx={{ p: 3, border: 1, borderColor: "divider", textAlign: "center" }}>
       <Typography variant="h5" gutterBottom>Waiting for other participants</Typography>
@@ -247,6 +259,15 @@ export function WaitingRoom({ snap }) {
       <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
         The game starts automatically when your group is complete. Please keep this tab open.
       </Typography>
+      {canLeave && (
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Sorry for the long wait. You can keep waiting, or end the study now and receive the participation payment.
+          </Typography>
+          <Button variant="outlined" onClick={leave}>End the study</Button>
+          {error && <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert>}
+        </Box>
+      )}
     </Paper>
   );
 }

@@ -89,6 +89,12 @@ game's settings file, so the instructions always match the game.
    - **Groups and seeds**: either let the dashboard pick random seeds (type how many groups
      you plan), or type your own seeds, e.g. `1, 2, 3`. The form tells you how many groups
      and participants this plans.
+   - **Prolific completion codes**: create the codes in your Prolific study and copy them
+     in: one for participants who **completed** the study, one for those who **failed the
+     quiz**, one for those who left after **waiting too long for a group**, and one for
+     **games stopped by a technical problem**. Participants see the code that fits how they
+     left, with a **Return to Prolific** button. Empty fields fall back to the defaults in the
+     settings file (`prolific.completion_codes`).
 
    Click **Create session**. You get a **session code** (e.g. `AB12CD34`) and two links with
    **Copy** buttons.
@@ -109,20 +115,41 @@ game's settings file, so the instructions always match the game.
 
 **How participants move through the study**
 
-1. They open the link. The study places them right away into the next planned group that
-   still needs people, and gives them a role: **islander**, or in a coordinator group, by
-   lottery, **coordinator** (each newcomer has a 1 in 5 chance while all seats are open).
-2. They read the instructions for their condition and role (9 short pages, one with a "try
-   it" example). Coordinators read about their rules and their pay instead of the fishing
+1. **Consent.** They read the study information (what they will do, payment, data, their
+   rights) and agree or decline. Declining ends the study; they are asked to return it on
+   Prolific. **Before the first real session, fill in the researchers, contact e-mail, ethics
+   approval and expected duration** in `frontend/src/game/studyInfo.js`, and have the text
+   approved.
+2. **Role.** After consenting, the study places them into the next planned group that still
+   needs people and gives them a role: **islander**, or in a coordinator group, by lottery,
+   **coordinator** (each newcomer has a 1 in 5 chance while all seats are open).
+3. **Instructions** for their condition and role (9 short pages, one with a "try it"
+   example). Coordinators read about their rules and their pay instead of the fishing
    decision.
-3. They wait until their group is complete (4 islanders, plus the coordinator). Groups start
-   as soon as they are complete, so a no-coordinator group may start before a coordinator
-   group that is still missing its coordinator. When all planned groups have started, later
-   arrivals are told that the session is full.
-4. They play. Each round has four steps — **Event, Talk, Decide, Results** — and in
+4. **Quiz.** 5–6 multiple-choice questions about the instructions (coordinators get their
+   own, including their pay and the dropout rule). Every answer must be right. After a
+   wrong try they see which questions were wrong and can re-read the instructions; after
+   **2 wrong tries** the study ends with the participation payment only and the "failed the
+   quiz" code. The number of tries is a setting.
+5. **Practice.** 2 unpaid practice rounds with **computer players**, clearly labelled
+   ("Computer B", ...). Islanders practise with three computer islanders, with no rules and no
+   chat; coordinators set rules for four computer islanders. Everyone practises on the same
+   island. The timers are the real ones.
+6. **Waiting room** until their group is complete (4 islanders, plus the coordinator).
+   Groups start as soon as they are complete, so a no-coordinator group may start before a
+   coordinator group that is still missing its coordinator. When all planned groups have
+   started, later arrivals are told that the session is full. After **10 minutes** of
+   waiting, a participant may end the study with the participation payment and the
+   "no group" code (or keep waiting).
+7. **The game.** Each round has four steps — **Event, Talk, Decide, Results** — and in
    coordinator groups a **Policy** step after the Event, in which the coordinator sets the
    rules. Each step has a timer and ends early when everyone is done.
-5. They see their final coins and bonus.
+8. **Questionnaire.** After their final coins and bonus: islanders rate fairness and how
+   much they trusted the other islanders (and, with a coordinator, the coordinator);
+   coordinators rate their own rules; everyone is asked for age (optional) and gender (with
+   "prefer not to say"), plus optional comments.
+9. **Payment page.** Participation payment, game bonus, total, the completion code and a
+   **Return to Prolific** button.
 
 **The Talk step.** Everyone can write in a group chat and send private messages to any
 other member (only the recipient sees a private message). In coordinator groups an islander
@@ -166,31 +193,36 @@ another participant.
 **Today** the dashboard lets you:
 
 - log in with the dashboard username and password (you stay logged in until you close the tab),
-- create sessions (name, conditions, seeds),
+- create sessions (name, conditions, seeds, Prolific completion codes),
 - see all sessions, newest first,
-- open a session to copy its links and watch the waiting room and every group (condition,
-  seed, round, step, running / finished).
+- open a session to copy its links, see its completion codes, see how many participants are
+  at each step (consent, quiz, practice, waiting room, playing, questionnaire, completed,
+  failed quiz, ...), and watch the waiting room and every group (condition, seed, round,
+  step, running / finished, flagged).
 
 The number of rounds is shown to you on the dashboard only; participants never see it.
 
 **Planned** (milestone 8), the dashboard will also:
 
 - show who in each group is connected, and dropouts,
-- show flagged groups,
 - download all data as spreadsheets (CSV) and Parquet files.
 
 ---
 
 ## What is recorded
 
-Every action is stored with a time stamp: when someone joins, which condition and role they
-were given, how long they spent on the instructions, entering the waiting room, every set of
+Every action is stored with a time stamp: when someone joins, their consent (and the version
+of the consent text), which condition and role they were given, how long they spent on the
+instructions, every quiz attempt (answers, which were wrong, time taken), the practice rounds
+(stored under their own names, e.g. `practice_decision`, so they never mix with the real
+game), entering and leaving the waiting room, every set of
 rules the coordinator confirmed (with response time and which rules changed), every single
 change the coordinator tried in the rule form before confirming (with its time), every chat and
 private message, every offer with its answer, any special treatment granted, whether it was
 paid and whether it was discovered, every decision (with response time and how often
 the sliders were moved), timeouts, the full outcome of every round (catch, income, savings,
-stock, infrastructure), the optional fairness ratings, and the final payments. Each group
+stock, infrastructure), the optional fairness ratings, the final payments (each participant's bonus is also stored
+with the participant), and the questionnaire answers. Each group
 also records its condition, seed, the exact settings file and the program version used.
 
 Prolific IDs are stored **separately** from the game data; the game data uses anonymous IDs
@@ -206,7 +238,8 @@ only.
 | Coordinator's live estimate, logging of every rule change, coordinator dropout | |
 | Instructions for each condition and role, with an interactive example | |
 | Chat, private messages, offers to the coordinator and special treatment | |
-| Waiting room and automatic group forming | Consent page, comprehension quiz, practice rounds, questionnaire, Prolific completion link (milestone 7) |
-| Timers, timeouts, results after each round, final payoff | Computer players replacing dropouts, dropout monitoring, data downloads (milestone 8) |
+| Consent, quiz, practice rounds with computer players, questionnaire, payment page with Prolific codes | |
+| Waiting room and automatic group forming | |
+| Timers, timeouts, results after each round, final payoff | Computer players replacing islanders who drop out, dropout monitoring, data downloads, bonus file for Prolific (milestone 8) |
 | Dashboard: create sessions, study links, group progress | |
 | Complete data recording | Load test and pilot checklist (milestone 9) |

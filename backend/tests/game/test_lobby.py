@@ -29,11 +29,20 @@ async def new_session(conditions, seeds):
 
 
 async def arrive(lobby, code):
-    """A participant joins and connects (allocation happens on the first lobby snapshot)."""
+    """A participant joins, connects and consents (allocation happens right after consent)."""
     p, _token, _new = await repo.join_participant(code, external_id=None)
     lobby.connected(p.id)
+    first = await lobby.snapshot(await repo.participant_by_id(p.id))
+    assert first["step"] == "consent" and "role" not in first      # nothing is allocated before consent
+    await lobby.give_consent(await repo.participant_by_id(p.id), {"consent": True})
     snap = await lobby.snapshot(await repo.participant_by_id(p.id))
     return p.id, snap
+
+
+async def ready(pid):
+    """Skip the quiz and practice rounds (tested in test_onboarding)."""
+    await repo.update_participant(pid, status="practice_done")
+    return await repo.participant_by_id(pid)
 
 
 @pytest.fixture
@@ -48,7 +57,7 @@ async def test_human_group_gets_one_coordinator(db, lobby):
     roles = Counter((s["condition"], s["role"]) for _pid, s in snaps)
     assert roles == {("human", "player"): 4, ("human", "coordinator"): 1}
     for pid, _s in snaps:
-        await lobby.enter_waiting_room(await repo.participant_by_id(pid))
+        await lobby.enter_waiting_room(await ready(pid))
     rt = next(iter(lobby.groups.values()))
     coord = next(pid for pid, s in snaps if s["role"] == "coordinator")
     assert rt.coordinator == coord and coord not in rt.seats and len(rt.seats) == 4
@@ -97,7 +106,7 @@ async def test_groups_start_when_their_condition_is_complete(db, lobby):
     snaps = [await arrive(lobby, code) for _ in range(9)]
     none_pids = [pid for pid, s in snaps if s["condition"] == "none"]
     for pid in none_pids:
-        await lobby.enter_waiting_room(await repo.participant_by_id(pid))
+        await lobby.enter_waiting_room(await ready(pid))
     assert [rt.condition for rt in lobby.groups.values()] == ["none"]   # does not wait for the human group
     assert next(iter(lobby.groups)).endswith("g002")
     for rt in lobby.groups.values():
@@ -108,9 +117,9 @@ async def test_full_session(db, lobby):
     code = await new_session(["none"], [5])
     snaps = [await arrive(lobby, code) for _ in range(5)]
     for pid, _s in snaps[:4]:
-        await lobby.enter_waiting_room(await repo.participant_by_id(pid))
+        await lobby.enter_waiting_room(await ready(pid))
     with pytest.raises(ActionError, match="full"):
-        await lobby.enter_waiting_room(await repo.participant_by_id(snaps[4][0]))
+        await lobby.enter_waiting_room(await ready(snaps[4][0]))
     _pid, s = await arrive(lobby, code)
     assert s == {"view": "full"}
     for rt in lobby.groups.values():

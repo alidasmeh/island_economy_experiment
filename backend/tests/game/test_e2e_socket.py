@@ -43,7 +43,58 @@ async def server(tmp_path, monkeypatch):
     await asyncio.wait_for(task, 10)
 
 
+_tasks: set = set()
+_errors: list = []
 AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:secret").decode()}
+
+
+async def onboarding_step(c, s, log: dict) -> bool:
+    """Walk a client through consent, quiz, practice rounds, waiting room and questionnaire.
+
+    Returns True when the state was an onboarding/exit state (handled here)."""
+    from app.game import onboarding
+    from app.game.service import get_service
+
+    view = s["view"]
+    if view == "lobby":
+        step = s["step"]
+        log.setdefault("steps", []).append(step)
+        if step == "consent":
+            assert (await c.call("give_consent", {"consent": True}))["ok"]
+        elif step == "instructions":
+            qs = onboarding.quiz_questions(get_service().cfg, s["condition"], s["role"])
+            if not s["quiz"]["attempts_used"]:     # first attempt deliberately wrong, second right
+                bad = {q.id: (q.answer + 1) % len(q.options) for q in qs}
+                ack = await c.call("submit_quiz", {"answers": bad})
+                assert ack["ok"] and not ack["passed"] and ack["attempts_left"] == 1
+            else:
+                ack = await c.call("submit_quiz", {"answers": {q.id: q.answer for q in qs}, "seconds": 12})
+                assert ack["ok"] and ack["passed"], ack
+        elif step == "practice":
+            assert (await c.call("start_practice", {}))["ok"]
+        elif step == "ready":
+            log["enter"] = await c.call("enter_waiting_room", {"instructions_seconds": 30})
+        return True
+    if view == "game" and s.get("practice"):
+        log["practice"] = True
+        if s["phase"] == "finished":
+            assert s["computer_seats"] and all(lab.startswith("Computer")
+                                               for i, lab in enumerate(s["labels"]) if i in s["computer_seats"])
+            assert (await c.call("finish_practice", {}))["ok"]
+            return True
+        return False      # practice rounds are played like the real game
+    if view == "game" and s["phase"] == "finished" and "questionnaire" not in log:
+        log["questionnaire"] = True
+        q = await c.call("get_questionnaire", {})
+        assert q["ok"], q
+        answers = {it["id"]: (4 if it["kind"] == "likert7" else
+                              "Prefer not to say" if it["kind"] == "choice" else None) for it in q["items"]}
+        assert (await c.call("submit_questionnaire", {"answers": answers}))["ok"]
+        return False      # the caller still records the final screen
+    if view == "exit":
+        log["exit"] = s
+        return True
+    return False
 
 
 async def test_admin_requires_credentials(server):
@@ -86,17 +137,39 @@ async def test_full_game_over_sockets(server):
     finished = {}
     clients = []
     views = {}
+    logs: dict[int, dict] = {}
 
     def make_client(i, token):
         c = socketio.AsyncClient()
 
+        lock = asyncio.Lock()
+
         @c.on("state")
         async def on_state(s):
+            # Handle each state in its own task, so awaiting an acknowledgement inside a handler
+            # never blocks the client from receiving it; the lock keeps states in order.
+            async def run():
+                async with lock:
+                    while "/" not in c.namespaces:     # the first state arrives during the handshake
+                        await asyncio.sleep(0.01)
+                    try:
+                        await handle(s)
+                    except Exception as exc:   # surfaced by the test's final checks
+                        _errors.append(repr(exc))
+                        raise
+            t = asyncio.create_task(run())
+            _tasks.add(t)
+            t.add_done_callback(_tasks.discard)
+
+        async def handle(s):
             views[i] = s["view"]
+            if await onboarding_step(c, s, logs.setdefault(i, {})):
+                return
             if s["view"] != "game":
                 return
             if s["phase"] == "finished":
-                finished[i] = s["final"]
+                if not s.get("practice"):
+                    finished[i] = s["final"]
                 return
             if s["done"]:
                 return
@@ -116,17 +189,23 @@ async def test_full_game_over_sockets(server):
         c = make_client(i, j["token"])
         await c.connect(server, socketio_path="/ws", transports=["websocket"], auth={"token": j["token"]})
         clients.append(c)
-        ack = await c.call("enter_waiting_room", {})
-        if i < 4:
-            assert ack["ok"], ack
-        else:   # only one group is planned, so the fifth participant is turned away
-            assert ack == {"ok": False, "error": "this session is full"}
+        # Nobody may skip ahead to the waiting room.
+        early = await c.call("enter_waiting_room", {})
+        assert not early["ok"] and "first" in early["error"]
 
     async def wait():
-        while len(finished) < 4:
+        while sum(1 for lg in logs.values() if "exit" in lg) < 4 or len(views) < 5 \
+                or not any(v == "full" or (lg.get("enter") or {}).get("ok") is False
+                           for v, lg in ((views.get(k), logs.get(k, {})) for k in range(5))):
             await asyncio.sleep(0.05)
-    await asyncio.wait_for(wait(), 60)
-    assert views[4] == "full"   # connected after the only planned group had started
+    await asyncio.wait_for(wait(), 90)
+    assert not _errors, _errors
+    # Only one group is planned: four play, the fifth is turned away.
+    assert len(finished) == 4
+    exits = [lg["exit"] for lg in logs.values() if "exit" in lg]
+    assert all(e["outcome"] == "completed" and e["bonus"] > 0 and e["show_up_fee"] > 0 for e in exits)
+    assert all(lg["steps"][:4] == ["consent", "instructions", "instructions", "practice"] and lg["practice"]
+               for lg in logs.values() if "exit" in lg)
     assert all(f["payoff_coins"] > 0 for f in finished.values())
     for c in clients:
         await c.disconnect()
@@ -146,7 +225,10 @@ async def test_full_game_over_sockets(server):
         payloads = [str(p) for p in (await db.execute(select(EventLog.payload))).scalars()]
         assert not any("PROLIFIC" in p for p in payloads)
         statuses = [p.status for p in (await db.execute(select(Participant))).scalars()]
-        assert statuses.count("finished") == 4
+        assert statuses.count("completed") == 4
+        assert counts["questionnaire"] == 4 and counts["quiz_attempt"] >= 8 and counts["consent"] >= 4
+        # Practice rounds are logged apart from the real game.
+        assert counts["practice_decision"] >= 4 * 2 * 2 and counts["practice_game_finished"] >= 4
 
 
 async def test_human_coordinator_game_over_sockets(server):
@@ -157,19 +239,43 @@ async def test_human_coordinator_game_over_sockets(server):
         joins = [(await http.post("/api/join", json={"session_code": code})).json() for _ in range(5)]
 
     finished, roles, clients, sent = {}, {}, [], []
+    logs: dict[int, dict] = {}
 
     def make_client(i):
         c = socketio.AsyncClient()
 
+        lock = asyncio.Lock()
+
         @c.on("state")
         async def on_state(s):
-            if s["view"] == "lobby":
+            # Handle each state in its own task, so awaiting an acknowledgement inside a handler
+            # never blocks the client from receiving it; the lock keeps states in order.
+            async def run():
+                async with lock:
+                    while "/" not in c.namespaces:     # the first state arrives during the handshake
+                        await asyncio.sleep(0.01)
+                    try:
+                        await handle(s)
+                    except Exception as exc:   # surfaced by the test's final checks
+                        _errors.append(repr(exc))
+                        raise
+            t = asyncio.create_task(run())
+            _tasks.add(t)
+            t.add_done_callback(_tasks.discard)
+
+        async def handle(s):
+            if s["view"] == "lobby" and "role" in s:
                 roles[i] = (s["condition"], s["role"])
+            if await onboarding_step(c, s, logs.setdefault(i, {})):
+                return
             if s["view"] != "game":
                 return
             if s["phase"] == "finished":
-                finished[i] = (s["role"], s["final"])
+                if not s.get("practice"):
+                    finished[i] = (s["role"], s["final"])
                 return
+            if s.get("practice") and s["phase"] == "communication":
+                raise AssertionError("practice rounds have no communication step")
             if s["done"]:
                 return
             if s["role"] == "coordinator":
@@ -192,7 +298,8 @@ async def test_human_coordinator_game_over_sockets(server):
                 return
             if s["phase"] == "decision":
                 await c.emit("submit_decision", {"round": s["round"], "harvest": 4, "contribute": 3, "save": 3})
-            elif s["phase"] == "communication" and s["round"] == 1 and s["seat"] == 0 and not sent:
+            elif s["phase"] == "communication" and s["round"] == 1 and s["seat"] == 0 and not sent \
+                    and not s.get("practice"):
                 sent.append(True)
                 assert (await c.call("send_message", {"channel": "public", "text": "hi group"}))["ok"]
                 assert (await c.call("offer_bribe", {"amount": 5, "note": "be kind"}))["ok"]
@@ -206,18 +313,12 @@ async def test_human_coordinator_game_over_sockets(server):
         c = make_client(i)
         await c.connect(server, socketio_path="/ws", transports=["websocket"], auth={"token": j["token"]})
         clients.append(c)
-    for _ in range(100):
-        if len(roles) == 5:
-            break
-        await asyncio.sleep(0.02)
-    assert Counter(r for _c, r in roles.values()) == {"player": 4, "coordinator": 1}
-    for c in clients:
-        assert (await c.call("enter_waiting_room", {"instructions_seconds": 30}))["ok"]
 
     async def wait():
-        while len(finished) < 5:
+        while sum(1 for lg in logs.values() if "exit" in lg) < 5:
             await asyncio.sleep(0.05)
-    await asyncio.wait_for(wait(), 90)
+    await asyncio.wait_for(wait(), 120)
+    assert Counter(r for _c, r in roles.values()) == {"player": 4, "coordinator": 1}
     coord_final = next(f for role, f in finished.values() if role == "coordinator")
     assert coord_final["welfare_bonus"] > 0
     for c in clients:

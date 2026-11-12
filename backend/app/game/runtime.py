@@ -44,6 +44,7 @@ from app.engine import (
     validate_decision,
     validate_policy,
 )
+from app.engine.setup import substream
 from app.engine.observation import coordinator_observation, group_summary, player_observation, public_policy
 from app.engine.types import BribeOffer, Favors, RoundLedger
 
@@ -70,9 +71,24 @@ def seat_label(seat: int) -> str:
     return f"Islander {string.ascii_uppercase[seat]}"
 
 
-def phases_for(condition: str) -> list[str]:
-    return ["event", "communication", "decision", "resolution"] if condition == "none" else \
+def phases_for(condition: str, practice: bool = False) -> list[str]:
+    ph = ["event", "communication", "decision", "resolution"] if condition == "none" else \
         ["event", "policy", "communication", "decision", "resolution"]
+    # Practice rounds are played with computer islanders, so there is no communication step.
+    return [p for p in ph if p != "communication"] if practice else ph
+
+
+def computer_label(seat: int) -> str:
+    return f"Computer {string.ascii_uppercase[seat]}"
+
+
+def bot_id(seat: int) -> str:
+    """Seat id of a computer islander (never a participant id: those start with ``p_``)."""
+    return f"bot:{seat}"
+
+
+def is_bot_id(pid: str) -> bool:
+    return pid.startswith("bot:")
 
 
 class GroupRuntime:
@@ -81,6 +97,7 @@ class GroupRuntime:
                  coordinator: str | None = None, coordinator_backend: CoordinatorBackend | None = None,
                  on_finish: Callable[["GroupRuntime"], Awaitable[None]] | None = None,
                  on_flag: Callable[["GroupRuntime", dict[str, Any]], Awaitable[None]] | None = None,
+                 bots: dict[int, Any] | None = None, practice: bool = False, n_rounds: int | None = None,
                  clock: Callable[[], float] = time.time):
         if condition not in ("none", "human"):
             raise ValueError(f"unknown condition {condition!r}")
@@ -104,8 +121,15 @@ class GroupRuntime:
         self.drafts_this_phase = 0
         self.last_draft: dict[str, Any] | None = None
         self.clock = clock
+        # Computer islanders (practice rounds): seat -> Bot. Their seat ids are bot_id(seat).
+        self.bots: dict[int, Any] = dict(bots or {})
+        for seat in self.bots:
+            if not is_bot_id(self.seats[seat]):
+                raise ValueError("computer seats must use bot_id(seat)")
+        self.practice = practice
 
         self.setup = draw_group_setup(seed, cfg)
+        self.n_rounds = n_rounds if n_rounds is not None else self.setup.n_rounds
         self.state = initial_state(self.setup, cfg)
         self.policy = default_policy(cfg)
         self.ledgers: list[RoundLedger] = []
@@ -135,7 +159,11 @@ class GroupRuntime:
             raise ActionError("not a member of this group") from None
 
     def members(self) -> list[str]:
-        return self.seats + ([self.coordinator] if self.coordinator else [])
+        """Human participants in the group (computer islanders are not members)."""
+        return [pid for pid in self.seats if not is_bot_id(pid)] + ([self.coordinator] if self.coordinator else [])
+
+    def _human_seats(self) -> list[int]:
+        return [i for i, pid in enumerate(self.seats) if not is_bot_id(pid)]
 
     def is_coordinator(self, participant_id: str) -> bool:
         return self.coordinator is not None and participant_id == self.coordinator
@@ -164,7 +192,7 @@ class GroupRuntime:
         return [pid for pid in self.members() if not (self.coordinator_dropped and pid == self.coordinator)]
 
     def phases(self) -> list[str]:
-        ph = phases_for(self.condition)
+        ph = phases_for(self.condition, self.practice)
         return [p for p in ph if p != "policy"] if self.coordinator_dropped else ph
 
     def _all_done(self) -> bool:
@@ -190,7 +218,8 @@ class GroupRuntime:
     async def run(self) -> None:
         try:
             await self._log("group_started", {
-                "condition": self.condition, "seed": self.seed, "n_rounds": self.setup.n_rounds,
+                "condition": self.condition, "seed": self.seed, "n_rounds": self.n_rounds,
+                "practice": self.practice, "computer_seats": {str(i): b.name for i, b in self.bots.items()},
                 "params_sha256": self.cfg.sha256, "code_version": self.code_version,
                 "seats": {str(i): pid for i, pid in enumerate(self.seats)},
                 "wealth0": list(self.setup.wealth0), "skills": list(self.setup.skills),
@@ -198,9 +227,9 @@ class GroupRuntime:
                 "coordinator": self.coordinator,
                 "coordinator_backend": type(self.coordinator_backend).__name__ if self.coordinator_backend else None,
             }, round=0)
-            for t in range(1, self.setup.n_rounds + 1):
+            for t in range(1, self.n_rounds + 1):
                 self.current_event = self.setup.event_for(self.cfg, t)
-                for phase in phases_for(self.condition):
+                for phase in phases_for(self.condition, self.practice):
                     if phase == "policy" and self.coordinator_dropped:
                         continue          # rules stay fixed for the rest of the game
                     if phase == "resolution":
@@ -219,6 +248,11 @@ class GroupRuntime:
             log.exception("group %s crashed", self.group_id)
             self.status = "aborted"
             await self._log("runtime_error", {"error": repr(exc), "phase": self.phase})
+            if self.on_finish:
+                try:
+                    await self.on_finish(self)
+                except Exception:
+                    log.exception("group %s: on_finish failed after a crash", self.group_id)
             await self.broadcast()
 
     async def _run_phase(self, phase: str, t: int) -> None:
@@ -236,6 +270,10 @@ class GroupRuntime:
         self._advance = asyncio.Event()
         await self._log("phase_started", {"phase": phase, "seconds": seconds, "deadline": self.deadline,
                                           "event": self.current_event.name if self.current_event else None})
+        if phase == "decision" and self.bots:
+            await self._bot_decisions()
+            if self._all_done():
+                self._advance.set()
         await self.broadcast()
         if phase == "policy" and self.coordinator_backend is not None:
             action = self.coordinator_backend.act(self.coordinator_view())
@@ -255,6 +293,22 @@ class GroupRuntime:
                                         "elapsed": self.clock() - self.phase_started,
                                         "n_done": self._n_done()})
 
+    async def _bot_decisions(self) -> None:
+        """Computer islanders decide at the start of the decision step, from what a human in the seat would see."""
+        last = self.ledgers[-1] if self.ledgers else None
+        for seat, bot in self.bots.items():
+            obs = player_observation(seat, self.state, self.policy, self.cfg, event=self.current_event,
+                                     last_ledger=last)
+            rng = substream(self.seed, f"bot:{self.round}:{seat}")
+            d = bot.decide(obs, rng)
+            try:
+                d = validate_decision(d, self.cfg, seat=seat, n_players=len(self.seats),
+                                      available_wealth=self.state.wealth[seat])
+            except ValidationError:
+                d = timeout_decision(self.state.last_allocation[seat], self.cfg)
+            self.submissions[seat] = (d, {"bot": bot.name})
+            await self._log("decision", {**self._decision_payload(seat, d), "timeout": False, "bot": bot.name})
+
     async def _apply_policy(self) -> None:
         """End of the policy phase: the submitted action takes effect, or the old policy stays."""
         if self.pending_action is None:
@@ -262,7 +316,8 @@ class GroupRuntime:
             await self._log("policy", {"timeout": True, "policy": self.policy.to_dict(), "changed": [],
                                        "missed_in_a_row": self.coordinator_missed},
                             participant_id=self.coordinator)
-            if self.coordinator_missed >= self.cfg.coordinator_missed_policy_phases and self.coordinator:
+            if self.coordinator_missed >= self.cfg.coordinator_missed_policy_phases and self.coordinator \
+                    and not self.practice:
                 await self._coordinator_dropout()
             return
         self.coordinator_missed = 0
@@ -336,9 +391,9 @@ class GroupRuntime:
         self.settlement = settle_game(self.state, self.cfg, has_coordinator=self.condition == "human")
         self.phase, self.status = "finished", "finished"
         await self._log("game_finished", {"settlement": asdict(self.settlement)})
-        await self.broadcast()
-        if self.on_finish:
+        if self.on_finish:          # stores bonuses and statuses before participants see the end screen
             await self.on_finish(self)
+        await self.broadcast()
 
     # ------------------------------------------------------------------ participant actions
 
@@ -555,8 +610,9 @@ class GroupRuntime:
     # ------------------------------------------------------------------ what participants see
 
     async def broadcast(self, only: list[int] | None = None) -> None:
-        seats = only if only is not None else range(len(self.seats))
-        sends = [self.transport.send(self.seats[s], "state", self.snapshot_for(s)) for s in seats]
+        seats = only if only is not None else self._human_seats()
+        sends = [self.transport.send(self.seats[s], "state", self.snapshot_for(s)) for s in seats
+                 if not is_bot_id(self.seats[s])]
         if only is None and self.coordinator:
             sends.append(self.transport.send(self.coordinator, "state", self.coordinator_snapshot()))
         await asyncio.gather(*sends)
@@ -572,7 +628,9 @@ class GroupRuntime:
             "status": self.status,
             "condition": self.condition,
             "has_coordinator": self.condition == "human",
-            "labels": [seat_label(i) for i in range(len(self.seats))],
+            "labels": [computer_label(i) if i in self.bots else seat_label(i) for i in range(len(self.seats))],
+            "practice": self.practice,
+            "computer_seats": sorted(self.bots),
             "phases": self.phases(),
             "coordinator_left": self.coordinator_dropped,
             "phase": self.phase,

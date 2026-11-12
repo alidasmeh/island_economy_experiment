@@ -329,3 +329,55 @@ interface clean. Parameter values live in `backend/config/default.yaml`.
   A dropped coordinator cannot come back. Their payoff is still computed by the usual rule;
   whether to pay it is the researchers' decision.
 - After one missed step the coordinator sees a warning that one more miss fixes the rules.
+
+## Milestone 7: onboarding and exit
+
+- **Order and enforcement.** consent → (allocation) → instructions → quiz → practice →
+  waiting room → game → questionnaire → payment page. The server tracks the step in
+  `Participant.status` and refuses out-of-order actions (e.g. `enter_waiting_room` before
+  practice). The client only keeps "instructions read" in the tab, so a reload skips
+  re-reading but never skips the quiz.
+- **Allocation moved after consent.** Condition and role are now drawn when the participant
+  consents (still before the instructions, which depend on both). People who decline or never
+  consent never hold a seat.
+- **Consent** text is in the frontend (`Onboarding.jsx`, details in `studyInfo.js` with
+  placeholders to fill in and get approved). Every answer is logged with
+  `onboarding.consent_version`; change it whenever the text changes. Declining ends the study
+  (outcome `no_consent`, no payment shown, asked to return the study).
+- **Quiz.** Built from the config (same numbers as the instructions), one version per
+  condition × role: 5 questions for `none` islanders, 6 for `human` islanders (adds who sets the
+  rules and what happens to a refused offer), 5 for coordinators (role, sea, pay, unanswered
+  offers, the dropout rule). Answers are graded on the server; correct answers are never sent
+  to the client. Pass = every answer right. After a failed try the participant sees which
+  questions were wrong (not the right answers) and may re-read the instructions. After
+  `onboarding.quiz_max_attempts` (2) failed tries: outcome `quiz_failed`, show-up fee only,
+  seat released.
+- **Practice rounds** (`onboarding.practice_rounds`, 2; 0 disables) use the real
+  `GroupRuntime` with computer islanders (`bots`, `practice=True`), real timers, no
+  communication step, and the same island for everyone (`onboarding.practice_seed`).
+  Islanders take seat A with N−1 computer islanders, **no rules and no chat, in both
+  conditions**, so practice is identical across conditions (simplest comparable choice; the
+  human-condition rules are taught in the instructions and quiz). Coordinators practise
+  setting rules for N computer islanders (no dropout rule in practice). Computer islanders are
+  labelled "Computer B" etc. and a banner says practice does not count. Strategies:
+  `onboarding.practice_bots`. Practice events go to the same log with a `practice_` prefix
+  (`practice_decision`, ...), so analyses of the real game cannot pick them up by accident.
+- **Waiting-room limit.** After `onboarding.waiting_room_max_seconds` (600 s) a participant
+  may end the study (outcome `no_group`, show-up fee); they are not removed automatically.
+- **Questionnaire** (after the final screen): 7-point agreement items. Islanders: fairness of
+  the outcome, cooperation and trust in the other islanders; with a coordinator also trust in
+  the coordinator, fairness, equal treatment and competence of the coordinator. Coordinators:
+  fairness of their own rules, acting for the group, influence of offers. Everyone: age
+  (optional, 18–100), gender (with "prefer not to say"), optional free text. Items are
+  defined in `backend/app/game/onboarding.py` and validated there; free text is stored as
+  plain text. Prolific already holds demographics; ours are kept short and skippable.
+- **Payment and Prolific.** Each participant's bonus (`payoff_money`, coordinator: their
+  payoff) is stored on `ie_participants.bonus` when the game ends. The payment page shows the
+  participation fee (`payment.show_up_fee`), the bonus and the total, the completion code
+  and a link `prolific.completion_url` with the code. Codes per outcome (`completed`,
+  `quiz_failed`, `no_group`, `aborted`, `no_consent`) are set per session in the dashboard,
+  falling back to `prolific.completion_codes`. No automatic redirect, so participants see
+  their payment first. Producing the bonus file for Prolific is part of the exports
+  (Milestone 8).
+- **Crashed groups** now also run `on_finish`, so their participants get status `aborted` and
+  the matching exit page; the end-of-game results are stored before the final screen is sent.

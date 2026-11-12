@@ -484,10 +484,12 @@ function CoordPayment({ r }) {
         in the whole game), minus {r.bribe_fine} coins for every accepted offer that is discovered.
       </P>
       <P>
-        Please stay until the end and keep this tab open. The islanders depend on you: if you do not set rules, the old
-        rules simply stay in force.
+        Please stay until the end and keep this tab open. The islanders depend on you. If you do not confirm rules in
+        time, the current rules stay in force. If that happens in <b>{r.coordinator_missed_limit} rounds in a row</b>,
+        you count as having left the game: the rules stay fixed for the rest of the game and the islanders are told
+        that the coordinator has left.
       </P>
-      <P>When you continue, you will wait until your group is complete. The game then starts automatically.</P>
+      <Next r={r} />
     </>
   );
 }
@@ -537,6 +539,17 @@ function TryIt({ r }) {
   );
 }
 
+function Next({ r }) {
+  return (
+    <P>
+      <b>What comes next:</b> a few questions to check that the instructions are clear (you need every answer right;
+      you have {r.quiz_max_attempts} tries)
+      {r.n_practice > 0 && `, then ${r.n_practice} practice rounds with computer players that do not count`}. After that
+      you wait until your group is complete, and the game starts automatically.
+    </P>
+  );
+}
+
 function Payment({ r }) {
   return (
     <>
@@ -551,7 +564,7 @@ function Payment({ r }) {
         Please stay until the end and keep this tab open. The other islanders depend on you: the game only works if
         everyone takes part in every round.
       </P>
-      <P>When you continue, you will wait until your group is complete. The game then starts automatically.</P>
+      <Next r={r} />
     </>
   );
 }

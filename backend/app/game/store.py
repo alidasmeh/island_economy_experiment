@@ -62,3 +62,16 @@ class SqlEventStore:
             async with get_db() as db:
                 db.add(row)
                 await db.commit()
+
+
+@dataclass
+class PrefixedEventStore:
+    """Logs to another store with every kind prefixed (practice rounds: ``practice_decision`` ...),
+    so analyses of the real game never pick up practice records by accident."""
+
+    inner: EventStore
+    prefix: str
+
+    async def append(self, kind, *, session_id, group_id=None, round=None, participant_id=None, payload=None):
+        await self.inner.append(self.prefix + kind, session_id=session_id, group_id=group_id, round=round,
+                                participant_id=participant_id, payload=payload)

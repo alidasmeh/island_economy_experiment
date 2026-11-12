@@ -6,7 +6,14 @@ checked against that binding. The server pushes a ``state`` message (a
 per-participant snapshot) whenever something the participant may see changes.
 
 Client -> server events (all acknowledged with {"ok": bool, "error"?: str}):
+    give_consent            {consent: bool}
+    submit_quiz             {answers: {question_id: option_index}, seconds?}  -> {ok, passed, wrong, attempts_left}
+    start_practice          {}                                   (unpaid rounds with computer islanders)
+    finish_practice         {}                                   (after the practice rounds are over)
     enter_waiting_room      {instructions_seconds?}
+    leave_waiting_room      {}                                   (only after waiting_room_max_seconds)
+    get_questionnaire       {}                                   -> {ok, items}   (after the game)
+    submit_questionnaire    {answers: {item_id: value}, seconds?}
     draft_policy            {round, levers...}  -> {ok, preview}   (coordinator: logged lever change)
     submit_policy           {round, quota, tax_rate, redistribution, match_rate, fine, audit_prob, insurance,
                              info_policy, announcement}            (coordinator, policy phase)
@@ -103,6 +110,41 @@ async def enter_waiting_room(sid, data=None):
         if isinstance(data, dict) and isinstance(data.get("instructions_seconds"), (int, float)):
             info["instructions_seconds"] = max(0, min(int(data["instructions_seconds"]), 86400))
         return await get_service().lobby.enter_waiting_room(p, info)
+    return await _call(sid, go)
+
+
+async def _participant(pid: str):
+    p = await repo.participant_by_id(pid)
+    if p is None:
+        raise ActionError("unknown participant")
+    return p
+
+
+def _lobby_call(method: str, with_data: bool = True):
+    async def handler(sid, data=None):
+        async def go(pid, _session_id):
+            p = await _participant(pid)
+            fn = getattr(get_service().lobby, method)
+            return await (fn(p, data) if with_data else fn(p))
+        return await _call(sid, go)
+    return handler
+
+
+sio.on("give_consent", _lobby_call("give_consent"))
+sio.on("submit_quiz", _lobby_call("submit_quiz"))
+sio.on("start_practice", _lobby_call("start_practice", with_data=False))
+sio.on("finish_practice", _lobby_call("finish_practice", with_data=False))
+sio.on("leave_waiting_room", _lobby_call("leave_after_waiting", with_data=False))
+sio.on("submit_questionnaire", _lobby_call("submit_questionnaire"))
+
+
+@sio.on("get_questionnaire")
+async def get_questionnaire(sid, data=None):
+    async def go(pid, _s):
+        p = await _participant(pid)
+        if p.status not in ("finished",):
+            raise ActionError("the questionnaire is not open")
+        return {"ok": True, "items": get_service().lobby.questionnaire_public(p)}
     return await _call(sid, go)
 
 

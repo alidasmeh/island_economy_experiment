@@ -30,14 +30,16 @@ def new_id(prefix: str, nbytes: int = 8) -> str:
 
 
 async def create_session(*, label: str, assignments: list[dict[str, Any]], params_path: str, params_sha256: str,
-                         params: dict[str, Any], code_version: str) -> ExperimentSession:
+                         params: dict[str, Any], code_version: str,
+                         settings: dict[str, Any] | None = None) -> ExperimentSession:
     async with get_db() as db:
         for _ in range(5):
             code = secrets.token_hex(4).upper()
             if await db.get(ExperimentSession, code) is None:
                 break
         s = ExperimentSession(id=code, label=label, assignments=assignments, params_path=params_path,
-                              params_sha256=params_sha256, params_snapshot=params, code_version=code_version)
+                              params_sha256=params_sha256, params_snapshot=params, code_version=code_version,
+                              settings=settings or {})
         db.add(s)
         await db.commit()
         return s
@@ -128,12 +130,15 @@ async def flag_group(group_id: str, flag: dict[str, Any]) -> None:
         await db.commit()
 
 
-async def finish_group(group_id: str, status: str) -> None:
+async def finish_group(group_id: str, status: str, bonuses: dict[str, float] | None = None) -> None:
+    """Mark the group and its participants finished (or aborted); store each participant's game bonus."""
     async with get_db() as db:
         g = await db.get(Group, group_id)
         g.status, g.finished_at = status, datetime.now(timezone.utc)
         for p in (await db.execute(select(Participant).where(Participant.group_id == group_id))).scalars():
             p.status = "finished" if status == "finished" else status
+            if bonuses and p.id in bonuses:
+                p.bonus = bonuses[p.id]
         await db.commit()
 
 
@@ -146,3 +151,11 @@ async def groups_in_session(session_id: str) -> list[Group]:
 async def participant_by_id(pid: str) -> Participant | None:
     async with get_db() as db:
         return await db.get(Participant, pid)
+
+
+async def participant_status_counts(session_id: str) -> dict[str, int]:
+    from sqlalchemy import func
+    async with get_db() as db:
+        q = select(Participant.status, func.count()).where(Participant.session_id == session_id) \
+            .group_by(Participant.status)
+        return {status: n for status, n in (await db.execute(q)).all()}

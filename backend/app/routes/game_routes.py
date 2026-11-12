@@ -15,7 +15,9 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
 from app.game import repo
+from app.engine.config import COMPLETION_OUTCOMES
 from app.game.lobby import SUPPORTED_CONDITIONS, plan_assignments
+from app.game.onboarding import completion_codes
 from app.game.service import get_service
 
 game_router = APIRouter(prefix="/api", tags=["game"])
@@ -57,6 +59,7 @@ class CreateSessionRequest(BaseModel):
     conditions: list[str] = Field(default_factory=lambda: ["none"], min_length=1)
     seeds: list[int] | None = None          # explicit seeds, or
     n_seeds: int | None = Field(default=None, ge=1, le=10000)   # random seeds drawn server-side
+    completion_codes: dict[str, str] = Field(default_factory=dict)   # Prolific codes per outcome
 
 
 @game_router.post("/admin/sessions")
@@ -70,13 +73,20 @@ async def create_session(req: CreateSessionRequest, _admin: str = Depends(requir
         seeds = [secrets.randbelow(2**31 - 1) + 1 for _ in range(req.n_seeds)]
     else:
         raise HTTPException(400, "give seeds or n_seeds")
+    bad_keys = set(req.completion_codes) - set(COMPLETION_OUTCOMES)
+    if bad_keys:
+        raise HTTPException(400, f"unknown completion outcome(s) {sorted(bad_keys)}; use {list(COMPLETION_OUTCOMES)}")
+    codes = {k: v.strip() for k, v in req.completion_codes.items() if v and v.strip()}
+    if any(len(v) > 64 or not v.replace("-", "").replace("_", "").isalnum() for v in codes.values()):
+        raise HTTPException(400, "completion codes may contain only letters, digits, - and _ (at most 64)")
     svc = get_service()
     s = await repo.create_session(label=req.label, assignments=plan_assignments(req.conditions, seeds),
                                   params_path=svc.cfg.source_path, params_sha256=svc.cfg.sha256,
-                                  params=svc.cfg.raw, code_version=svc.code_version)
+                                  params=svc.cfg.raw, code_version=svc.code_version,
+                                  settings={"completion_codes": codes})
     await svc.store.append("session_created", session_id=s.id,
                            payload={"label": s.label, "assignments": s.assignments, "params_sha256": s.params_sha256,
-                                    "code_version": s.code_version})
+                                    "code_version": s.code_version, "settings": s.settings})
     return {"session_code": s.id, "assignments": s.assignments, "params_sha256": s.params_sha256}
 
 
@@ -102,6 +112,8 @@ async def session_detail(code: str, _admin: str = Depends(require_admin)) -> dic
                        "flags": (rt.flags if rt else None) or list(g.flags or [])})
     return {"session_code": s.id, "label": s.label, "status": s.status, "assignments": s.assignments,
             "params_sha256": s.params_sha256, "code_version": s.code_version,
+            "completion_codes": completion_codes(get_service().cfg, s.settings),
+            "participants_by_status": await repo.participant_status_counts(s.id),
             "n_waiting": len(live.waiting) if live else 0, "groups": groups}
 
 
@@ -133,6 +145,11 @@ async def rules() -> dict[str, Any]:
         "coins_per_currency_unit": cfg.coins_per_currency_unit,
         "currency": cfg.currency,
         "show_up_fee": cfg.show_up_fee,
+        "quiz_max_attempts": cfg.quiz_max_attempts,
+        "n_practice": cfg.practice_rounds,   # number of practice rounds (no key may contain "round")
+        "waiting_room_max_minutes": max(1, int(cfg.waiting_room_max_seconds // 60 + 0.5)),
+        "consent_version": cfg.consent_version,
+        "coordinator_missed_limit": cfg.coordinator_missed_policy_phases,
         # Coordinator condition
         "levers": {name: {"min": r.min, "max": r.max, "step": r.step}
                    for name, r in (("quota", cfg.lever_quota), ("tax_rate", cfg.lever_tax_rate),

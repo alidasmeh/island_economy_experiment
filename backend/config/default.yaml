@@ -138,3 +138,24 @@ payment:
   coins_per_currency_unit: 100 # e.g. 100 coins = 1 GBP
   currency: GBP
   show_up_fee: 1.50
+
+# Onboarding and exit (Milestone 7): consent, quiz, practice rounds, waiting room.
+onboarding:
+  consent_version: "2026-11-v1"  # logged with each consent; change it whenever the consent text changes
+  quiz_max_attempts: 2         # failing every attempt ends the study with the show-up fee only
+  practice_rounds: 2           # unpaid rounds against computer players before the waiting room (0 = none)
+  practice_seed: 1             # same practice island (endowments, events) for everyone
+  # Computer islanders in practice, one per seat. Islanders play seat A with the others as
+  # computer players; a coordinator sets rules for all of them.
+  practice_bots: [conditional, conditional, cooperative, selfish]
+  waiting_room_max_seconds: 600  # after this, a participant may leave the waiting room with the no_group code
+
+# Prolific. Codes here are defaults; each session can set its own in the researcher dashboard.
+prolific:
+  completion_url: "https://app.prolific.com/submissions/complete?cc={code}"
+  completion_codes:
+    completed: ""              # finished the game and the questionnaire
+    quiz_failed: ""            # failed the comprehension quiz (show-up fee only)
+    no_group: ""               # waited too long for a group (show-up fee only)
+    aborted: ""                # the game stopped because of a technical problem
+    no_consent: ""             # did not consent (participants are asked to return the study)

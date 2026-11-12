@@ -26,6 +26,14 @@ import { createSession, getRules, listSessions, UnauthorizedError } from "../api
 import { LinkBox } from "../components/LinkBox";
 
 // The two conditions of Study 1.
+// Ways a participant can leave the study, each with its own Prolific completion code.
+const CODE_FIELDS = [
+  ["completed", "Completed"],
+  ["quiz_failed", "Failed the quiz"],
+  ["no_group", "No group (waited too long)"],
+  ["aborted", "Game stopped (technical)"],
+];
+
 const CONDITIONS = [
   { value: "none", label: "No coordinator", available: true },
   { value: "human", label: "Human coordinator (groups of 4 islanders + 1 coordinator)", available: true },
@@ -64,6 +72,7 @@ function CreateSessionForm({ onCreated }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState(null);
+  const [codes, setCodes] = useState({});
   const [groupSize, setGroupSize] = useState(null);
 
   useEffect(() => {
@@ -86,7 +95,7 @@ function CreateSessionForm({ onCreated }) {
     setError("");
     setCreated(null);
     setBusy(true);
-    const body = { label: label.trim(), conditions };
+    const body = { label: label.trim(), conditions, completion_codes: codes };
     if (seedMode === "random") body.n_seeds = n;
     else body.seeds = seeds;
     const res = await run(() => createSession(body), setError);
@@ -158,6 +167,19 @@ function CreateSessionForm({ onCreated }) {
             />
           </Stack>
         </RadioGroup>
+
+        <Typography variant="subtitle2" sx={{ mt: 1 }}>Prolific completion codes</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Create these codes in your Prolific study and copy them here. Participants see the code for how they left
+          the study, with a button back to Prolific. Empty fields use the defaults from the server config.
+        </Typography>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+          {CODE_FIELDS.map(([key, text]) => (
+            <TextField key={key} size="small" label={text} value={codes[key] || ""}
+              onChange={(e) => setCodes((c) => ({ ...c, [key]: e.target.value.trim() }))}
+              inputProps={{ maxLength: 64, style: { fontFamily: "monospace" } }} sx={{ width: { sm: 200 } }} />
+          ))}
+        </Stack>
 
         <Typography variant="body2" sx={{ my: 1.5 }}>
           {valid ? (
